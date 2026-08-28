@@ -1,0 +1,91 @@
+# Evidence-First Deep Research Skill
+
+Reusable Skill for deep web research, source discovery, fact-checking, statistical review, contradiction analysis, and community-intelligence synthesis.
+
+Current package version: `1.0.0`. See the [changelog](CHANGELOG.md), [release checklist](RELEASE_CHECKLIST.md), and [live evaluation](validation/live-evaluation.md).
+
+## What it changes
+
+The Skill prevents premature answer writing. It turns a request into a research tree, uses the built-in ChatGPT Search/Web capability to discover and open sources, extracts atomic claims, validates evidence and independence, actively searches for contradictions, then synthesizes only after a quality audit.
+
+For long-running work, it also provides a persistent research bundle with stable IDs, append-friendly ledgers, resumable checkpoints, an explicit downstream handoff, and deterministic referential-integrity validation. Web content is treated as untrusted data and cannot override the research task or request secrets/actions.
+
+It supports general research plus domain overlays for gaming, Hearthstone, World of Warcraft, and software.
+
+## Package layout
+
+```text
+deep-research/
+├── SKILL.md                 # concise orchestrator
+├── agents/openai.yaml       # ChatGPT Work UI metadata
+├── references/              # methods loaded only when relevant
+│   ├── domains/             # domain-specific evidence rules
+│   ├── templates/           # reusable working records
+│   └── examples/            # illustrative plans and routing
+├── scripts/                 # package and research-bundle tools
+├── tests/                   # dependency-free integration tests
+├── validation/              # acceptance tests and self-audit
+└── README.md                # package guide
+```
+
+The requested flat document tree is intentionally placed under `references/` to follow progressive disclosure: ChatGPT Work first loads the Skill entrypoint and opens only the relevant protocol or domain module.
+
+## Use
+
+Invoke `$deep-research` with a question and, when useful, a target date, jurisdiction, locale, product version, patch, season, population, or output constraint.
+
+```text
+Use $deep-research to determine when the first Dark Gift should be used in
+Hearthstone Battlegrounds for the current patch. Separate mechanics, statistics,
+high-MMR expert advice, and community opinion. Find counterarguments.
+```
+
+Modes can be combined:
+
+```text
+research: exhaustive, community-heavy, current-patch-only, raw-research
+```
+
+The default is `deep` with a balance of primary sources, statistics, expert analysis, and community intelligence. A simple lookup does not need the full pipeline unless the user requests fact-checking or source comparison.
+
+## Search capability
+
+Internet work uses the built-in ChatGPT Search/Web capability. Search results discover candidate sources; the Skill then opens the original pages and validates claim-level evidence. It never treats a snippet or an AI-generated search summary as a verified source.
+
+## Output boundary
+
+The output is a research report or raw evidence database, not an automatically generated SEO article. A separate Writer Skill may consume the validated research later.
+
+## Persistent professional workflow
+
+Use a file-backed bundle for exhaustive, raw, resumable, or cross-Skill work:
+
+```text
+python3 scripts/init_research_run.py /path/to/run \
+  --question "Main question" \
+  --depth exhaustive \
+  --domain hearthstone \
+  --modifier raw-research
+
+python3 scripts/validate_research_run.py /path/to/run --stage working
+python3 scripts/validate_research_run.py /path/to/run --stage final
+python3 scripts/fingerprint_research_sources.py /path/to/run --apply
+python3 scripts/research_ops.py resume /path/to/run
+python3 scripts/research_ops.py compare /path/to/older-run /path/to/newer-run
+python3 scripts/research_ops.py export /path/to/run /path/to/research-run.zip
+python3 scripts/score_semantic_gold.py ../evaluation/gold/semantic-cases.jsonl ../evaluation/gold/semantic-predictions.jsonl
+```
+
+The initializer refuses to overwrite a non-empty directory. Schema 1.1 records requested/final URLs, mutability, preserved snapshots, and SHA-256 fingerprints. The validator checks JSON/JSONL structure, unique stable IDs, Claim → Evidence → Source links, snapshot hashes, and final audit/readiness conditions. Legacy schema 1.0 bundles have a backed-up, reversible migration. `research_ops.py release` runs the benchmark, semantic gold, package audit, and tests before creating deterministic skill/evaluation archives and a SHA-256 manifest. See [research operations](references/research-operations.md), the [bundle contract](references/research-bundle.md), and [web safety](references/web-safety.md).
+
+## Validation
+
+Package validation:
+
+```text
+python3 scripts/audit_skill.py
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+quick_validate.py /absolute/path/to/deep-research
+```
+
+The first command checks package files, Python syntax, internal links, resource discoverability, and unfinished placeholders. The integration suite exercises initialization, working/final validation, broken references, timestamp enforcement, semantic-audit enforcement, migration, fingerprinting, benchmark tamper rejection, deterministic export, and overwrite protection. The bundled Skill validator checks frontmatter and naming. Method quality is recorded in the [self-audit](validation/self-audit.md), the [simulated routing tests](validation/acceptance-tests.md), and the [22-case Search/Web benchmark](validation/live-evaluation.md). See also the [gaming](references/examples/gaming-research.md) and [general](references/examples/general-research.md) worked examples.
