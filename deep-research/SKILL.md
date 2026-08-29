@@ -7,7 +7,7 @@ description: Conduct evidence-first internet research, source discovery, fact-ch
 
 Produce an auditable research result whose conclusions follow from validated evidence. Optimize in this order: accuracy, coverage, freshness, depth, usability. Writing polish is secondary.
 
-Use the built-in ChatGPT Search/Web capability for internet discovery and for opening sources. A search result or snippet is a lead, not evidence; inspect the source page before relying on it. Do not form strong conclusions until evidence validation is complete.
+Use the built-in ChatGPT Search/Web capability as the default for internet discovery and opening sources. When available and relevant, route Reddit evidence through RedditAPI, X evidence through GetXAPI, and difficult general-web discovery or extraction through TinyFish using [optional source providers](references/source-providers.md). These providers are specialist access layers, not substitutes for source inspection. A search result or snippet is a lead, not evidence; inspect the source page before relying on it. Do not form strong conclusions until evidence validation is complete.
 
 ## Route the request
 
@@ -38,6 +38,7 @@ Read when applicable:
 
 - [contradiction search](references/contradiction-search.md) for central, surprising, disputed, strategic, causal, or superlative claims; at minimum, apply it to the preliminary main conclusion;
 - [community intelligence](references/community-intelligence.md) for Reddit, X, YouTube, forums, reviews, or expert/community opinion;
+- [optional source providers](references/source-providers.md) when RedditAPI, GetXAPI, TinyFish, or provider fallback/rate/cost rules are relevant;
 - [freshness policy](references/freshness-policy.md) for anything current or versioned;
 - [confidence system](references/confidence-system.md) when rating claims and writing conclusions;
 - [research operations](references/research-operations.md) and [research bundle](references/research-bundle.md) for `exhaustive`, `raw-research`, resumable/file-backed work, or handoff to another Skill;
@@ -69,7 +70,7 @@ New bundles use schema 1.1. When mutable inspected content can be preserved safe
 
 ### 2. Run multi-pass discovery and collection
 
-Use ChatGPT Search/Web in distinct passes:
+Use built-in ChatGPT Search/Web in distinct passes. Add optional provider routes only for the branches they improve:
 
 1. broad discovery;
 2. deep evidence gathering;
@@ -140,3 +141,5 @@ Stop only when all decision-relevant branches are answered, explicitly excluded,
 - Do not claim “I studied everything” or “the whole community agrees.” Use bounded language such as “among the sources reviewed.”
 - Do not optimize for the user's initial hypothesis. Show contrary evidence and differences between statistics, experts, and community views.
 - Research access does not authorize logging in, bypassing restrictions, posting, purchasing, scraping around controls, or changing external systems.
+- Never place API keys, session cookies, auth tokens, or provider credentials in prompts, command arguments, URLs, repository files, research bundles, snapshots, logs, or outputs.
+- Optional-provider failure must not be hidden: record the affected platform as partial or blocked, use a bounded fallback when possible, and cap confidence.

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Added optional read-only RedditAPI, GetXAPI, and TinyFish adapters with normalized JSON output and no stored credentials.
+- Added fail-fast local TinyFish limits for 30 searches and 150 fetched URLs per rolling minute.
+- Added provider routing, platform-separation, cost/rate, incomplete-coverage, and third-party provenance rules.
+- Documented the Google Research assessment: adopt AIS-style attribution methodology, but do not add BLEURT or ScaNN runtime dependencies without a measured need.
+- Added offline regression tests for normalization, comment-tree completeness, risk flags, secret-safe diagnostics, and rate limiting.
+
 ## 1.0.0 — 2026-08-28
 
 - Validated 22 release-oracle cases: 20 live ChatGPT Search/Web runs across five domains plus two adversarial fixtures.

@@ -2,7 +2,7 @@
 
 ## Tool contract
 
-Use the built-in ChatGPT Search/Web capability for internet research. Use Search to discover candidates and Web/open-page access to inspect sources. Search-result text, snippets, answer cards, and AI summaries are discovery metadata, not verified evidence.
+Use the built-in ChatGPT Search/Web capability as the default for internet research. Use Search to discover candidates and Web/open-page access to inspect sources. When a branch requires direct Reddit/X access or TinyFish extraction, apply [optional source providers](source-providers.md) without changing this evidence boundary. Search-result text, snippets, answer cards, provider search results, and AI summaries are discovery metadata, not verified evidence.
 
 Prefer opening the original URL. If the original is unavailable, try its official mirror or archive, then seek independent confirmation. Record unresolved access limitations and lower confidence when the missing source matters.
 

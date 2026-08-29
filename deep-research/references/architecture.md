@@ -11,7 +11,9 @@ User query
   -> Query interpreter
   -> Research planner and recursive tree
   -> optional persistent research-run bundle
-  -> ChatGPT Search/Web
+  -> source-access layer
+       -> built-in ChatGPT Search/Web (default)
+       -> optional RedditAPI / GetXAPI / TinyFish adapters
        -> primary sources
        -> statistics
        -> experts
@@ -27,7 +29,7 @@ User query
   -> Final research report
 ```
 
-ChatGPT Search/Web is the built-in discovery and source-access layer. Search snippets are never promoted directly into the evidence database. The collector relies on the content of opened sources and records access limitations.
+ChatGPT Search/Web is the built-in default discovery and source-access layer. The read-only adapter in `scripts/community_sources.py` optionally normalizes RedditAPI, GetXAPI, and TinyFish results into a provider-neutral envelope. Search snippets and provider results are never promoted directly into the evidence database. The collector relies on inspected source content and records access limitations.
 
 ## Layers and responsibilities
 
@@ -37,6 +39,7 @@ ChatGPT Search/Web is the built-in discovery and source-access layer. Search sni
 | shared protocols | search, provenance, verification, freshness, confidence, audit | domain-specific entities |
 | domain adapters | source preferences, version axes, terminology, failure modes | duplicated core methodology |
 | templates | working artifact schemas | mandatory final prose layout for every request |
+| source adapter | optional read-only platform access, local rate gates, normalized provider records | source truth, posting, login, or credential storage |
 | research-run scripts | reproducible bundle initialization and referential-integrity validation | judging factual truth |
 | validation | packaging audit and simulated acceptance evidence | runtime research |
 
@@ -59,7 +62,7 @@ ChatGPT Search/Web is the built-in discovery and source-access layer. Search sni
 - “Research Auditor” is a role contract inside the workflow, not an assumed separate agent. The Skill works in environments without subagent support.
 - Domain adapters refine claim authority and freshness without weakening universal evidence rules.
 - Templates are Markdown working records so they remain tool-agnostic and can be used in chat or persisted as files.
-- The package has no external runtime dependency. Built-in ChatGPT Search/Web supplies network research.
+- The core package has no external runtime dependency. Built-in ChatGPT Search/Web supplies network research; provider support is optional and degrades explicitly when credentials or the TinyFish CLI are unavailable.
 - File-backed runs are optional. They are required only when persistence, resumability, raw evidence delivery, or cross-Skill handoff materially improves the task.
 - Deterministic validators prove structure and provenance links, not whether a source is true; the Research Auditor retains that semantic responsibility.
 
@@ -70,3 +73,13 @@ ChatGPT Search/Web is the built-in discovery and source-access layer. Search sni
 - Keep each rule in one authoritative file; link rather than copy.
 - Do not encode a one-off research finding as universal methodology.
 - Preserve the invariant: validation and audit precede strong synthesis.
+
+## Google Research integration decision
+
+The [`google-research/google-research`](https://github.com/google-research/google-research) repository is a large collection of independent experiments, not a single production dependency. No code from it is vendored into this Skill.
+
+- The [AIS](https://github.com/google-research-datasets/AIS) idea, “Attributable to Identified Sources,” is adopted methodologically through the existing Claim → Evidence → Source chain and semantic audit. Its archived annotation dataset may inform future evaluation cases, but it is not a runtime verifier.
+- [BLEURT](https://github.com/google-research/BLEURT) evaluates whether generated text conveys a reference's meaning; it does not establish that a claim is factually supported. Its TensorFlow/model dependency would add weight without replacing the semantic auditor.
+- [ScaNN](https://github.com/google-research/google-research/blob/master/scann/README.md) is for large-scale vector nearest-neighbor retrieval. Add it only after a measured evidence-corpus retrieval bottleneck justifies a platform-specific dependency; ordinary research bundles do not need it.
+
+This decision preserves portability and makes factual support an explicit judgment rather than a similarity score.

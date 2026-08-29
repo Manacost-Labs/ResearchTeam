@@ -7,6 +7,8 @@
 
 Production-grade research Skill for ChatGPT Work and Codex. It turns an open-ended question into an auditable evidence pipeline, uses the built-in **ChatGPT Search/Web** capability, verifies sources at claim level, searches for contradictions, and blocks confident delivery when the evidence is incomplete.
 
+The source tree also contains unreleased optional read-only adapters for **RedditAPI**, **GetXAPI**, and **TinyFish**. Built-in ChatGPT Search/Web remains the default; the adapters improve direct Reddit/X coverage and difficult web extraction when locally configured.
+
 ## Download
 
 **Main installation package:** [download `deep-research-1.0.0.zip`](release/deep-research-1.0.0.zip)
@@ -116,7 +118,23 @@ The [bundle contract](deep-research/references/research-bundle.md) defines stabl
 
 ## Search boundary
 
-Internet research uses the built-in **ChatGPT Search/Web** capability. Search snippets and AI-generated search summaries are discovery leads only. A claim may be cited only after the original source is opened and inspected. The Skill does not authorize logins, paywall bypasses, posting, purchasing, or external system changes.
+Internet research uses the built-in **ChatGPT Search/Web** capability by default. Search snippets and AI-generated search summaries are discovery leads only. A claim may be cited only after the original source is opened and inspected. The Skill does not authorize logins, paywall bypasses, posting, purchasing, or external system changes.
+
+Optional source adapters are available from source:
+
+```bash
+python3 deep-research/scripts/community_sources.py doctor
+python3 deep-research/scripts/community_sources.py reddit-posts \
+  --subreddit hearthstone --sort top --timeframe week
+python3 deep-research/scripts/community_sources.py x-search \
+  --query 'Hearthstone since:2026-08-22 lang:en' --product Latest
+python3 deep-research/scripts/community_sources.py tinyfish-search \
+  --query "Hearthstone current patch"
+```
+
+RedditAPI and GetXAPI credentials are read only from `REDDITAPIS_KEY` and `GETXAPI_KEY`. TinyFish uses its own installed CLI credentials. No key belongs in this repository or in a command argument. The adapter intentionally exposes read operations only, normalizes provider output, preserves coverage warnings, and enforces a local TinyFish ceiling of 30 searches per rolling minute. See the [provider contract](deep-research/references/source-providers.md).
+
+The downloadable `deep-research-1.0.0.zip` remains the verified 1.0.0 release and does not silently change. The optional provider adapters currently live in the unreleased source tree and will enter a future gated release after the release oracle is rerun.
 
 ## Repository structure
 

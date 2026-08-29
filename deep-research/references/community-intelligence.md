@@ -18,7 +18,9 @@ For every material community item, record:
 - supporting examples and counterarguments;
 - engagement only as context, never as proof of truth or prevalence.
 
-Use ChatGPT Search/Web to locate and open the actual post, thread, or video page. For YouTube, inspect the relevant segment and record timestamps when possible. If access is partial, label it.
+Use built-in ChatGPT Search/Web to locate and open the actual post, thread, or video page. When available, use the read-only RedditAPI and GetXAPI routes defined in [optional source providers](source-providers.md) to obtain direct Reddit/X records, timestamps, context, and visible engagement without flattening the platforms together. For YouTube, inspect the relevant segment and record timestamps when possible. If access is partial, label it.
+
+Provider ranking is not community prevalence. Segment automated posts, giveaways, stickied material, crossposts, replies, and incomplete comment trees before interpreting a sample. Preserve the exact subreddit or X query, time window, sort/product, cursor, provider position, and collection time.
 
 ## Expert detection for gaming and practitioner topics
 
