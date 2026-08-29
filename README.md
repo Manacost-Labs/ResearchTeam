@@ -1,84 +1,84 @@
-# ResearchTeam — Evidence-First Deep Research
+<div align="center">
+
+# ResearchTeam
+
+### Evidence-first deep research for ChatGPT Work and Codex
+
+Turn an open-ended question into an auditable chain of sources, evidence, claims, contradictions, and confidence-rated conclusions.
 
 [![Release](https://img.shields.io/badge/release-1.0.0-0A7B83)](deep-research/CHANGELOG.md)
-[![Benchmark](https://img.shields.io/badge/benchmark-22%20cases-success)](evaluation/benchmark/README.md)
+[![Benchmark](https://img.shields.io/badge/benchmark-22%2F22-success)](evaluation/benchmark/README.md)
+[![Tests](https://img.shields.io/badge/source%20tests-23%20passing-success)](deep-research/tests)
 [![Semantic Gold](https://img.shields.io/badge/semantic%20gold-100%25-success)](evaluation/gold/semantic-cases.jsonl)
 [![License](https://img.shields.io/badge/license-proprietary-lightgrey)](LICENSE)
 
-Production-grade research Skill for ChatGPT Work and Codex. It turns an open-ended question into an auditable evidence pipeline, uses the built-in **ChatGPT Search/Web** capability, verifies sources at claim level, searches for contradictions, and blocks confident delivery when the evidence is incomplete.
+[Download 1.0.0](release/deep-research-1.0.0.zip) ·
+[Skill documentation](deep-research/README.md) ·
+[Evaluation](evaluation/evaluation-report.md) ·
+[Changelog](deep-research/CHANGELOG.md)
 
-The source tree also contains unreleased optional read-only adapters for **RedditAPI**, **GetXAPI**, and **TinyFish**. Built-in ChatGPT Search/Web remains the default; the adapters improve direct Reddit/X coverage and difficult web extraction when locally configured.
+</div>
 
-## Download
+---
 
-**Main installation package:** [download `deep-research-1.0.0.zip`](release/deep-research-1.0.0.zip)
+## Why ResearchTeam
 
-The separate [evaluation archive](release/deep-research-evaluation-1.0.0.zip) contains the 22-case release oracle and reproducibility evidence. It is not required for normal installation. Archive checksums are recorded in the [release manifest](release/release-manifest.json).
+Most research failures happen before writing: the question is underspecified, search snippets are mistaken for evidence, repeated sources are counted as independent confirmation, or a confident conclusion is produced despite missing statistics and contradictions.
 
-> По-русски: для обычной загрузки в ChatGPT Work используйте основной файл `deep-research-1.0.0.zip`. Evaluation ZIP нужен только для проверки качества релиза.
+ResearchTeam makes those failure modes explicit and testable. It plans first, collects evidence by claim type, validates provenance and freshness, searches for disconfirming evidence, and permits a strong conclusion only after the quality gate passes.
 
-## What it does
+> **Release boundary:** `deep-research-1.0.0.zip` is the verified stable package. The repository source also contains unreleased read-only adapters for RedditAPI, GetXAPI, and TinyFish. They are not silently included in the 1.0.0 archive.
 
-- Builds a recursive research plan before drafting conclusions.
-- Separates primary sources, statistics, expert interpretation, community evidence, and counter-evidence.
-- Preserves atomic `Claim → Evidence → Source` relationships.
-- Tracks freshness, versions, patches, dates, jurisdictions, samples, and source lineage.
-- Treats every web page and embedded instruction as untrusted evidence.
-- Distinguishes Reddit, forums, X, and other communities instead of flattening them into one “consensus.”
-- Returns `ready`, `ready_with_warnings`, or `not_ready` based on explicit quality gates.
-- Supports resumable research bundles, deterministic export, comparison, and downstream handoff.
+## Core guarantees
+
+- Research planning happens before conclusion writing.
+- Primary sources, statistics, experts, community evidence, and counter-evidence remain separate.
+- Every consequential conclusion is traceable through `Claim → Evidence → Source`.
+- Publication date, event date, access date, version, patch, sample, and source lineage are preserved when relevant.
+- Search snippets and AI summaries are discovery leads, never verified evidence.
+- Reddit, X, forums, YouTube, and other communities are not flattened into a fictional universal consensus.
+- Missing evidence lowers confidence instead of being hidden.
+- The final state is explicit: `ready`, `ready_with_warnings`, or `not_ready`.
+- Web content is treated as untrusted data and cannot override the research task or request secrets/actions.
+
+## How it works
 
 ```text
-Question
-  -> Research tree
-  -> ChatGPT Search/Web discovery
-  -> Inspected sources + provenance snapshots
-  -> Atomic evidence and claims
-  -> Contradiction + semantic audit
-  -> Report + explicit delivery boundary
+Question and scope
+  ↓
+Recursive research tree
+  ↓
+Built-in ChatGPT Search/Web + optional specialist sources
+  ↓
+Opened sources and provenance records
+  ↓
+Atomic evidence and falsifiable claims
+  ↓
+Contradiction, freshness, and semantic-support checks
+  ↓
+Adversarial Research Auditor
+  ↓
+Research report or reusable evidence bundle
 ```
 
-## Verified release quality
+The built-in **ChatGPT Search/Web** capability remains the default discovery and source-opening layer. Optional providers improve platform-specific access without weakening the evidence rules.
 
-Version `1.0.0` is backed by 20 live Search/Web scenarios across five domains and two controlled adversarial fixtures.
+| Source layer | Purpose | Status |
+|---|---|---|
+| ChatGPT Search/Web | Default web discovery and source inspection | Included in 1.0.0 |
+| RedditAPI | Subreddit listings, search, posts, and comment context | Unreleased source adapter |
+| GetXAPI | Direct X posts, dates, authors, and visible engagement | Unreleased source adapter |
+| TinyFish | General web search and clean page extraction | Unreleased source adapter |
 
-| Release gate | Result |
-|---|---:|
-| Benchmark cases | 22 |
-| Live cases | 20 |
-| Critical claims traceable | 48 / 48 |
-| Material claims semantically supported | 7 / 7 |
-| Mutable sources fingerprinted | 64 / 64 |
-| Semantic gold field/verdict accuracy | 100% / 100% |
-| Snippet evidence | 0 |
-| False-ready decisions | 0 |
-| Web-safety violations | 0 |
-| Automated tests | 16 passing |
+Provider output is not automatically evidence. The original source must still be inspected and attached to a specific claim.
 
-The benchmark validator recomputes these metrics from the linked schema 1.1 bundles. Editing `results.jsonl` cannot manufacture a passing release.
-
-## Install
+## Quick start
 
 ### ChatGPT Work
 
-Download [the main ZIP](release/deep-research-1.0.0.zip) and upload it through the custom Skill interface available in your ChatGPT Work workspace.
-
-### Codex local installation
-
-Extract the package into the Codex skills directory:
-
-```bash
-mkdir -p ~/.codex/skills
-unzip deep-research-1.0.0.zip -d ~/.codex/skills
-```
-
-The resulting entrypoint should be:
-
-```text
-~/.codex/skills/deep-research/SKILL.md
-```
-
-## Use
+1. Download the main package: **[`deep-research-1.0.0.zip`](release/deep-research-1.0.0.zip)**.
+2. Upload it through the custom Skill interface in your ChatGPT Work workspace.
+3. Start with a bounded research request:
 
 ```text
 Use $deep-research to investigate the current state of <topic>.
@@ -86,72 +86,127 @@ Separate official facts, statistics, expert interpretation, community views,
 and counter-evidence. State the date/version scope and unresolved gaps.
 ```
 
-Useful modifiers:
+The [evaluation archive](release/deep-research-evaluation-1.0.0.zip) is only for release verification and is not required for installation.
 
-```text
-research: quick
-research: deep, current-patch-only
-research: exhaustive, raw-research, contradiction-heavy
-research: community-heavy, statistics-heavy
-```
+### Codex
 
-## Professional workflow
+Extract the stable package into the local Skills directory:
 
 ```bash
-# Initialize a persistent schema 1.1 bundle
+mkdir -p ~/.codex/skills
+unzip deep-research-1.0.0.zip -d ~/.codex/skills
+```
+
+Expected entrypoint:
+
+```text
+~/.codex/skills/deep-research/SKILL.md
+```
+
+## Research modes
+
+The default mode is `deep`. Modes and modifiers can be combined:
+
+| Mode or modifier | Use when |
+|---|---|
+| `quick` | The question is narrow and only a few claims are consequential |
+| `deep` | The default for multi-branch research and mixed evidence |
+| `exhaustive` | A guide, dossier, or reusable evidence base needs recursive coverage |
+| `current-patch-only` | Product/game version compatibility is mandatory |
+| `community-heavy` | Reddit, X, YouTube, forums, or practitioners are central |
+| `statistics-heavy` | Quantitative evidence and methodology are decision-critical |
+| `contradiction-heavy` | The topic is disputed, strategic, causal, or superlative |
+| `raw-research` | Another Skill or writer will consume the validated evidence later |
+
+Example:
+
+```text
+Use $deep-research to determine when the first Dark Gift should be used in
+Hearthstone Battlegrounds for the current patch. Separate mechanics,
+statistics, high-MMR expert advice, community opinion, and counterarguments.
+
+research: exhaustive, current-patch-only, raw-research
+```
+
+## Optional provider adapters
+
+The current source tree exposes a dependency-free, read-only JSON interface:
+
+```bash
+# Availability without printing credential values
+python3 deep-research/scripts/community_sources.py doctor
+
+# Reddit community sample
+python3 deep-research/scripts/community_sources.py reddit-posts \
+  --subreddit hearthstone --sort top --timeframe week --limit 25
+
+# X posts through GetXAPI
+python3 deep-research/scripts/community_sources.py x-search \
+  --query 'Hearthstone since:2026-08-22 lang:en' --product Latest
+
+# General web discovery through TinyFish
+python3 deep-research/scripts/community_sources.py tinyfish-search \
+  --query "Hearthstone current patch analysis"
+```
+
+Credential boundary:
+
+- RedditAPI reads `REDDITAPIS_KEY` from the local environment.
+- GetXAPI reads `GETXAPI_KEY` from the local environment.
+- TinyFish uses credentials managed by its own CLI.
+- Keys must never appear in command arguments, URLs, repository files, bundles, snapshots, logs, or output.
+- The adapter exposes no login, posting, voting, commenting, direct-message, cookie, or account-modification operation.
+
+TinyFish is locally limited to 30 searches and 150 fetched URLs per rolling minute. Provider cost, rate exhaustion, inaccessible sources, and partial listing coverage remain visible in normalized output. See the full [provider contract](deep-research/references/source-providers.md).
+
+## Persistent professional workflow
+
+For exhaustive, resumable, or cross-Skill work, create a schema 1.1 research bundle:
+
+```bash
+# Initialize without overwriting a non-empty directory
 python3 deep-research/scripts/init_research_run.py /path/to/run \
   --question "Main research question" \
-  --depth deep \
-  --domain general
+  --depth exhaustive \
+  --domain general \
+  --modifier raw-research
 
-# Validate and resume from recorded gaps
+# Continue from recorded evidence gaps
 python3 deep-research/scripts/research_ops.py resume /path/to/run
+
+# Validate before delivery
+python3 deep-research/scripts/validate_research_run.py /path/to/run --stage final
 
 # Compare two research snapshots
 python3 deep-research/scripts/research_ops.py compare /path/to/old /path/to/new
 
-# Validate and create a deterministic ZIP
+# Create a deterministic archive
 python3 deep-research/scripts/research_ops.py export /path/to/run /path/to/run.zip
 ```
 
-The [bundle contract](deep-research/references/research-bundle.md) defines stable IDs, source fingerprints, semantic-audit records, lifecycle states, and readiness rules.
+The [bundle contract](deep-research/references/research-bundle.md) defines stable IDs, provenance snapshots, source fingerprints, semantic-audit records, lifecycle states, and readiness rules.
 
-## Search boundary
+## Verified quality
 
-Internet research uses the built-in **ChatGPT Search/Web** capability by default. Search snippets and AI-generated search summaries are discovery leads only. A claim may be cited only after the original source is opened and inspected. The Skill does not authorize logins, paywall bypasses, posting, purchasing, or external system changes.
+The stable 1.0.0 release is backed by 20 live Search/Web scenarios across five domains and two controlled adversarial fixtures.
 
-Optional source adapters are available from source:
+| Release gate | Verified result |
+|---|---:|
+| Benchmark cases | 22 / 22 |
+| Live cases | 20 |
+| Critical claims traceable | 48 / 48 |
+| Material claims semantically supported | 7 / 7 |
+| Mutable sources fingerprinted | 64 / 64 |
+| Semantic gold field/verdict accuracy | 100% / 100% |
+| Snippet evidence admitted as proof | 0 |
+| False-ready decisions | 0 |
+| Web-safety violations | 0 |
+| Automated tests in the 1.0.0 release | 16 passing |
+| Automated tests in current source | 23 passing |
 
-```bash
-python3 deep-research/scripts/community_sources.py doctor
-python3 deep-research/scripts/community_sources.py reddit-posts \
-  --subreddit hearthstone --sort top --timeframe week
-python3 deep-research/scripts/community_sources.py x-search \
-  --query 'Hearthstone since:2026-08-22 lang:en' --product Latest
-python3 deep-research/scripts/community_sources.py tinyfish-search \
-  --query "Hearthstone current patch"
-```
+The release validator recomputes benchmark metrics from the linked research bundles. Editing a summary result cannot manufacture a passing release.
 
-RedditAPI and GetXAPI credentials are read only from `REDDITAPIS_KEY` and `GETXAPI_KEY`. TinyFish uses its own installed CLI credentials. No key belongs in this repository or in a command argument. The adapter intentionally exposes read operations only, normalizes provider output, preserves coverage warnings, and enforces a local TinyFish ceiling of 30 searches per rolling minute. See the [provider contract](deep-research/references/source-providers.md).
-
-The downloadable `deep-research-1.0.0.zip` remains the verified 1.0.0 release and does not silently change. The optional provider adapters currently live in the unreleased source tree and will enter a future gated release after the release oracle is rerun.
-
-## Repository structure
-
-```text
-.
-├── deep-research/             # installable Skill source
-│   ├── SKILL.md               # runtime entrypoint
-│   ├── references/            # methods, domain adapters, templates
-│   ├── scripts/               # validation and operations
-│   └── tests/                 # dependency-free regression tests
-├── evaluation/
-│   ├── benchmark/             # 22 release-oracle cases and bundles
-│   └── gold/                  # semantic/citation gold set
-└── release/                   # deterministic 1.0.0 archives and hashes
-```
-
-## Validate from source
+Run the complete source checks:
 
 ```bash
 python3 deep-research/scripts/audit_skill.py
@@ -162,7 +217,35 @@ python3 deep-research/scripts/score_semantic_gold.py \
   evaluation/gold/semantic-predictions.jsonl
 ```
 
+## Repository structure
+
+```text
+.
+├── deep-research/
+│   ├── SKILL.md                 # runtime orchestrator
+│   ├── agents/openai.yaml       # ChatGPT Work metadata
+│   ├── references/              # protocols, domains, templates, examples
+│   ├── scripts/                 # adapters, validation, bundle operations
+│   ├── tests/                   # dependency-free regression suite
+│   └── validation/              # acceptance tests and self-audit
+├── evaluation/
+│   ├── benchmark/               # 22 release-oracle cases and bundles
+│   └── gold/                    # semantic/citation gold set
+└── release/                     # deterministic 1.0.0 archives and manifest
+```
+
+## Security model
+
+- Internet content is untrusted evidence, including embedded tool instructions.
+- Research access never authorizes login, paywall bypass, purchasing, posting, or external system changes.
+- Credentials are environment- or provider-managed and excluded from research artifacts.
+- Provider failures degrade explicitly to partial or blocked coverage.
+- Structural validators prove integrity and provenance links; they do not pretend to prove factual truth.
+- Strong synthesis remains blocked until semantic support and the adversarial audit pass.
+
 ## Release integrity
+
+Checksums are also recorded in the [release manifest](release/release-manifest.json).
 
 ```text
 deep-research-1.0.0.zip
@@ -171,6 +254,14 @@ SHA-256 6c029e2a28b1e400bf1bb9bfd080125698ab7b97462117f60aefbd0840d4ef7e
 deep-research-evaluation-1.0.0.zip
 SHA-256 1263f6a8f05d24378f6ef4583e06cfcb52ee9cd2c0e1e88a1dd56008ff93a963
 ```
+
+## Roadmap to 1.1.0
+
+- Add sanitized live contract tests for RedditAPI and GetXAPI.
+- Expose the read-only source layer through a host-compatible MCP server.
+- Add CI for audit, tests, benchmark, semantic gold, secret scanning, and deterministic packaging.
+- Add per-run provider budgets, caching/deduplication, latency, cost, and failure telemetry.
+- Rerun the release oracle and publish new deterministic archives and checksums.
 
 ## License
 
