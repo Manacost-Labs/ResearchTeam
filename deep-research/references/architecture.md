@@ -14,6 +14,7 @@ User query
   -> source-access layer
        -> built-in ChatGPT Search/Web (default)
        -> optional RedditAPI / GetXAPI / TinyFish adapters
+       -> optional Chinese Hearthstone / Scrape.do ingestion
        -> primary sources
        -> statistics
        -> experts
@@ -31,6 +32,8 @@ User query
 
 ChatGPT Search/Web is the built-in default discovery and source-access layer. The read-only adapter in `scripts/community_sources.py` optionally normalizes RedditAPI, GetXAPI, and TinyFish results into a provider-neutral envelope. Search snippets and provider results are never promoted directly into the evidence database. The collector relies on inspected source content and records access limitations.
 
+For Chinese Hearthstone sources, `scripts/chinese_hearthstone.py` adds a dependency-free site-profile layer, content-aware Scrape.do escalation, deterministic deckstring/statistics/provenance extraction, Bilibili evidence normalization, and DBF resolution through `api.kolodahearthstone.com`. It produces ingestion records; it does not bypass the normal evidence collector, semantic audit, or final quality gate. Durable scheduling and database migrations remain host-application responsibilities.
+
 ## Layers and responsibilities
 
 | Layer | Owns | Does not own |
@@ -40,6 +43,7 @@ ChatGPT Search/Web is the built-in default discovery and source-access layer. Th
 | domain adapters | source preferences, version axes, terminology, failure modes | duplicated core methodology |
 | templates | working artifact schemas | mandatory final prose layout for every request |
 | source adapter | optional read-only platform access, local rate gates, normalized provider records | source truth, posting, login, or credential storage |
+| Chinese ingestion adapter | public CN source profiles, Scrape.do attempt ledger, deterministic Hearthstone extraction, card DB enrichment | scheduler, private access, final guide writing |
 | research-run scripts | reproducible bundle initialization and referential-integrity validation | judging factual truth |
 | validation | packaging audit and simulated acceptance evidence | runtime research |
 

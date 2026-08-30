@@ -4,7 +4,7 @@ Reusable Skill for deep web research, source discovery, fact-checking, statistic
 
 Current package version: `1.0.0`. See the [changelog](CHANGELOG.md), [release checklist](RELEASE_CHECKLIST.md), and [live evaluation](validation/live-evaluation.md).
 
-The verified archive remains version `1.0.0`. The current source tree also contains unreleased optional provider adapters; see [optional source providers](references/source-providers.md) and the `Unreleased` changelog section.
+The verified archive remains version `1.0.0`. The current source tree also contains unreleased optional provider adapters and a Chinese Hearthstone ingestion pipeline; see [optional source providers](references/source-providers.md), [Chinese Hearthstone intelligence](references/chinese-hearthstone.md), and the `Unreleased` changelog section.
 
 ## What it changes
 
@@ -67,6 +67,19 @@ python3 scripts/community_sources.py tinyfish-fetch --url https://example.com/so
 
 RedditAPI reads `REDDITAPIS_KEY`, GetXAPI reads `GETXAPI_KEY`, and TinyFish uses credentials managed by its own CLI. Keys are never command arguments or output. TinyFish search is locally capped at 30 calls per rolling minute. Provider output is still untrusted discovery material until the original source is inspected and converted into Source/Evidence records.
 
+For Chinese Hearthstone sources, `scripts/chinese_hearthstone.py` provides content-aware Scrape.do escalation, six source profiles, deterministic deckstring/statistics/provenance extraction, repost-lineage handling, Bilibili timestamp evidence, GuideHunter queries, and card resolution through `api.kolodahearthstone.com`.
+
+```text
+python3 scripts/chinese_hearthstone.py doctor
+python3 scripts/chinese_hearthstone.py inspect \
+  --source iyingdi --url https://www.iyingdi.com/example \
+  --file tests/fixtures/chinese/iyingdi_cn_meta.html
+python3 scripts/chinese_hearthstone.py deck DECKSTRING --resolve-cards
+python3 scripts/chinese_hearthstone.py guide-queries --archetype "控制战"
+```
+
+The adapter reads `SCRAPE_DO_API_TOKEN` and optionally `KHS_API_TOKEN` only from the environment. Built-in ChatGPT Search/Web remains the default interactive discovery layer; the pipeline handles repeatable ingestion and still feeds the normal evidence/audit workflow.
+
 ## Output boundary
 
 The output is a research report or raw evidence database, not an automatically generated SEO article. A separate Writer Skill may consume the validated research later.
@@ -103,4 +116,4 @@ python3 -m unittest discover -s tests -p 'test_*.py' -v
 quick_validate.py /absolute/path/to/deep-research
 ```
 
-The first command checks package files, Python syntax, internal links, resource discoverability, and unfinished placeholders. The integration suite exercises initialization, working/final validation, broken references, timestamp enforcement, semantic-audit enforcement, migration, fingerprinting, benchmark tamper rejection, deterministic export, overwrite protection, provider normalization, secret-safe diagnostics, and TinyFish rate limits. The bundled Skill validator checks frontmatter and naming. Method quality is recorded in the [self-audit](validation/self-audit.md), the [simulated routing tests](validation/acceptance-tests.md), and the [22-case Search/Web benchmark](validation/live-evaluation.md). See also the [gaming](references/examples/gaming-research.md) and [general](references/examples/general-research.md) worked examples.
+The first command checks package files, Python syntax, internal links, resource discoverability, and unfinished placeholders. The integration suite exercises initialization, working/final validation, broken references, timestamp enforcement, semantic-audit enforcement, migration, fingerprinting, benchmark tamper rejection, deterministic export, overwrite protection, provider normalization, secret-safe diagnostics, TinyFish rate limits, Scrape.do escalation, Chinese source fixtures, deck similarity, origin classification, Bilibili evidence, and Koloda API normalization. The bundled Skill validator checks frontmatter and naming. Method quality is recorded in the [self-audit](validation/self-audit.md), the [simulated routing tests](validation/acceptance-tests.md), and the [22-case Search/Web benchmark](validation/live-evaluation.md). See also the [gaming](references/examples/gaming-research.md) and [general](references/examples/general-research.md) worked examples.

@@ -8,7 +8,7 @@ Turn an open-ended question into an auditable chain of sources, evidence, claims
 
 [![Release](https://img.shields.io/badge/release-1.0.0-0A7B83)](deep-research/CHANGELOG.md)
 [![Benchmark](https://img.shields.io/badge/benchmark-22%2F22-success)](evaluation/benchmark/README.md)
-[![Tests](https://img.shields.io/badge/source%20tests-23%20passing-success)](deep-research/tests)
+[![Tests](https://img.shields.io/badge/source%20tests-42%20passing-success)](deep-research/tests)
 [![Semantic Gold](https://img.shields.io/badge/semantic%20gold-100%25-success)](evaluation/gold/semantic-cases.jsonl)
 [![License](https://img.shields.io/badge/license-proprietary-lightgrey)](LICENSE)
 
@@ -27,7 +27,7 @@ Most research failures happen before writing: the question is underspecified, se
 
 ResearchTeam makes those failure modes explicit and testable. It plans first, collects evidence by claim type, validates provenance and freshness, searches for disconfirming evidence, and permits a strong conclusion only after the quality gate passes.
 
-> **Release boundary:** `deep-research-1.0.0.zip` is the verified stable package. The repository source also contains unreleased read-only adapters for RedditAPI, GetXAPI, and TinyFish. They are not silently included in the 1.0.0 archive.
+> **Release boundary:** `deep-research-1.0.0.zip` is the verified stable package. The repository source also contains unreleased read-only adapters for RedditAPI, GetXAPI, TinyFish, and Chinese Hearthstone intelligence. They are not silently included in the 1.0.0 archive.
 
 ## Core guarantees
 
@@ -69,6 +69,8 @@ The built-in **ChatGPT Search/Web** capability remains the default discovery and
 | RedditAPI | Subreddit listings, search, posts, and comment context | Unreleased source adapter |
 | GetXAPI | Direct X posts, dates, authors, and visible engagement | Unreleased source adapter |
 | TinyFish | General web search and clean page extraction | Unreleased source adapter |
+| Scrape.do + Chinese profiles | Repeatable IYingdi, TapTap, NGA, Bilibili, GamerSky, and 17173 ingestion | Unreleased source adapter |
+| Koloda Hearthstone API | DBF validation and RU/EN card metadata | Unreleased source adapter |
 
 Provider output is not automatically evidence. The original source must still be inspected and attached to a specific claim.
 
@@ -159,6 +161,27 @@ Credential boundary:
 
 TinyFish is locally limited to 30 searches and 150 fetched URLs per rolling minute. Provider cost, rate exhaustion, inaccessible sources, and partial listing coverage remain visible in normalized output. See the full [provider contract](deep-research/references/source-providers.md).
 
+Chinese Hearthstone ingestion is a separate deterministic path:
+
+```bash
+# Safe configuration report: values are never printed
+python3 deep-research/scripts/chinese_hearthstone.py doctor
+
+# Offline extraction fixture
+python3 deep-research/scripts/chinese_hearthstone.py inspect \
+  --source iyingdi \
+  --url https://www.iyingdi.com/example \
+  --file deep-research/tests/fixtures/chinese/iyingdi_cn_meta.html
+
+# Live public source through Scrape.do, with DBF enrichment
+python3 deep-research/scripts/chinese_hearthstone.py fetch \
+  --source iyingdi \
+  --url https://www.iyingdi.com/example \
+  --resolve-cards
+```
+
+It reads `SCRAPE_DO_API_TOKEN` and optionally `KHS_API_TOKEN` from the environment. It validates actual content before accepting HTTP 200, escalates `normal → render → super → super+render`, stops dead URLs and account/rate errors, preserves original Chinese, decodes deckstrings deterministically, tracks repost lineage, and resolves cards through [api.kolodahearthstone.com](https://github.com/Manacost-Labs/api.kolodahearthstone.com). Full methodology and CLI contracts are in [Chinese Hearthstone intelligence](deep-research/references/chinese-hearthstone.md).
+
 ## Persistent professional workflow
 
 For exhaustive, resumable, or cross-Skill work, create a schema 1.1 research bundle:
@@ -202,7 +225,7 @@ The stable 1.0.0 release is backed by 20 live Search/Web scenarios across five d
 | False-ready decisions | 0 |
 | Web-safety violations | 0 |
 | Automated tests in the 1.0.0 release | 16 passing |
-| Automated tests in current source | 23 passing |
+| Automated tests in current source | 42 passing |
 
 The release validator recomputes benchmark metrics from the linked research bundles. Editing a summary result cannot manufacture a passing release.
 
@@ -240,6 +263,7 @@ python3 deep-research/scripts/score_semantic_gold.py \
 - Research access never authorizes login, paywall bypass, purchasing, posting, or external system changes.
 - Credentials are environment- or provider-managed and excluded from research artifacts.
 - Provider failures degrade explicitly to partial or blocked coverage.
+- Scrape.do's provider-required authentication URL is confined to the transport layer and is never emitted, persisted, or copied into diagnostics.
 - Structural validators prove integrity and provenance links; they do not pretend to prove factual truth.
 - Strong synthesis remains blocked until semantic support and the adversarial audit pass.
 
@@ -258,6 +282,7 @@ SHA-256 1263f6a8f05d24378f6ef4583e06cfcb52ee9cd2c0e1e88a1dd56008ff93a963
 ## Roadmap to 1.1.0
 
 - Add sanitized live contract tests for RedditAPI and GetXAPI.
+- Add host-level scheduling and durable persistence for Chinese source polling; the current adapter exposes the ingestion contract without introducing a second database architecture.
 - Expose the read-only source layer through a host-compatible MCP server.
 - Add CI for audit, tests, benchmark, semantic gold, secret scanning, and deterministic packaging.
 - Add per-run provider budgets, caching/deduplication, latency, cost, and failure telemetry.

@@ -2,6 +2,17 @@
 
 These are routing and invariant simulations, not live factual Hearthstone research. No source, game fact, or conclusion is claimed from the simulations.
 
+## Chinese Hearthstone ingestion
+
+- A valid IYingdi fixture with `服务器：国服`, games, win rate, rank window, and one 30-card deck must validate and classify as `CN_META`.
+- `本人构筑` plus a CN ladder result may classify as `CN_ORIGINAL` only after a completed western-match check finds no match.
+- A 28/30 overlap with a western deck must classify as `CN_VARIANT` and preserve added/removed DBF IDs.
+- A GamerSky repost with western attribution must preserve the original lineage and classify as `WESTERN_REPOST`, not independent evidence.
+- A 17173 compilation containing twenty valid codes must return twenty source-to-deck relationships.
+- CAPTCHA, login, SPA shell, 403, 429, dead URL, and provider-account failures must never be recorded as successful content.
+- A Bilibili payload must preserve subtitle timestamps and produce structured evidence only for strategy-bearing segments.
+- Configuration reports and all error/result envelopes must omit Scrape.do and Koloda API secret values.
+
 ## Test 1 — narrow factual research
 
 ### Prompt

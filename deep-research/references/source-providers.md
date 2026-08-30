@@ -2,7 +2,7 @@
 
 ## Boundary
 
-Built-in ChatGPT Search/Web remains the default discovery and source-opening layer. RedditAPI, GetXAPI, and TinyFish are optional specialist routes for access gaps; they do not replace evidence validation, source inspection, contradiction search, or the built-in capability.
+Built-in ChatGPT Search/Web remains the default discovery and source-opening layer. RedditAPI, GetXAPI, TinyFish, and the Chinese Hearthstone Scrape.do adapter are optional specialist routes for access gaps; they do not replace evidence validation, source inspection, contradiction search, or the built-in capability.
 
 All adapters are read-only. This package intentionally exposes no login, cookie, vote, comment, direct-message, publishing, or account-modification operation, even when a provider offers one.
 
@@ -13,6 +13,7 @@ All adapters are read-only. This package intentionally exposes no login, cookie,
 | General web discovery and normal pages | ChatGPT Search/Web | TinyFish Search/Fetch when installed and useful for access or clean extraction |
 | Reddit posts, subreddit ranking, and comment context | RedditAPI | ChatGPT Search/Web with explicit coverage limitation |
 | Direct X posts, dates, authors, and visible engagement | GetXAPI | ChatGPT Search/Web; label mirrors, indexing gaps, and inaccessible direct posts |
+| Chinese Hearthstone articles, forums, videos, and compilations | ChatGPT Search/Web for discovery; configured Scrape.do pipeline for repeatable ingestion | Mark the affected source partial/blocked; see [Chinese Hearthstone intelligence](chinese-hearthstone.md) |
 
 Do not silently substitute another platform. If Reddit or X is required and the corresponding route is unavailable, mark that evidence class `PARTIAL` or `BLOCKED` and cap claim confidence.
 
@@ -40,7 +41,7 @@ python3 scripts/community_sources.py tinyfish-search \
 python3 scripts/community_sources.py tinyfish-fetch --url https://example.com/source
 ```
 
-RedditAPI reads `REDDITAPIS_KEY`; GetXAPI reads `GETXAPI_KEY`. Configure these only in the local environment or a secret manager. TinyFish credentials remain managed by its own CLI. Never place keys in a command argument, URL, repository file, research bundle, snapshot, output, or error report.
+RedditAPI reads `REDDITAPIS_KEY`; GetXAPI reads `GETXAPI_KEY`. Configure these only in the local environment or a secret manager. TinyFish credentials remain managed by its own CLI. Chinese ingestion reads `SCRAPE_DO_API_TOKEN` and optionally `KHS_API_TOKEN`. Never place keys in a command argument, target URL, repository file, research bundle, snapshot, output, or error report; provider-required query authentication must remain inside a redacted transport boundary.
 
 The `doctor` command emits only presence booleans and tool availability, never credential values.
 

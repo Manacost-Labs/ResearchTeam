@@ -1,5 +1,7 @@
 # Hearthstone Domain Adapter
 
+For Chinese server, deck, guide, or community intelligence, also load [Chinese Hearthstone intelligence](../chinese-hearthstone.md). Its classifications and deck comparisons are ingestion signals, not substitutes for current-patch authority, independent evidence, or the normal claim audit.
+
 Load with the gaming adapter for Hearthstone research. This file adds Hearthstone-specific routing only.
 
 ## Context record

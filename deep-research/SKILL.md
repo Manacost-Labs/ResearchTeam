@@ -9,6 +9,8 @@ Produce an auditable research result whose conclusions follow from validated evi
 
 Use the built-in ChatGPT Search/Web capability as the default for internet discovery and opening sources. When available and relevant, route Reddit evidence through RedditAPI, X evidence through GetXAPI, and difficult general-web discovery or extraction through TinyFish using [optional source providers](references/source-providers.md). These providers are specialist access layers, not substitutes for source inspection. A search result or snippet is a lead, not evidence; inspect the source page before relying on it. Do not form strong conclusions until evidence validation is complete.
 
+For Chinese Hearthstone questions, load [Chinese Hearthstone intelligence](references/chinese-hearthstone.md). Use its Scrape.do ingestion path only for configured public sources; keep built-in ChatGPT Search/Web as the interactive discovery default and route extracted records through the same evidence and audit gates.
+
 ## Route the request
 
 Before searching, record three choices in the research plan.
@@ -141,5 +143,5 @@ Stop only when all decision-relevant branches are answered, explicitly excluded,
 - Do not claim “I studied everything” or “the whole community agrees.” Use bounded language such as “among the sources reviewed.”
 - Do not optimize for the user's initial hypothesis. Show contrary evidence and differences between statistics, experts, and community views.
 - Research access does not authorize logging in, bypassing restrictions, posting, purchasing, scraping around controls, or changing external systems.
-- Never place API keys, session cookies, auth tokens, or provider credentials in prompts, command arguments, URLs, repository files, research bundles, snapshots, logs, or outputs.
+- Never place API keys, session cookies, auth tokens, or provider credentials in prompts, command arguments, target URLs, repository files, research bundles, snapshots, logs, or outputs. If a provider requires query authentication, confine the full provider URL to its redacted transport boundary and never emit or persist it.
 - Optional-provider failure must not be hidden: record the affected platform as partial or blocked, use a bounded fallback when possible, and cap confidence.
