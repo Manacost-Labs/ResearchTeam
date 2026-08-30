@@ -180,7 +180,7 @@ python3 deep-research/scripts/chinese_hearthstone.py fetch \
   --resolve-cards
 ```
 
-It reads `SCRAPE_DO_API_TOKEN` and optionally `KHS_API_TOKEN` from the environment. It validates actual content before accepting HTTP 200, escalates `normal → render → super → super+render`, stops dead URLs and account/rate errors, preserves original Chinese, decodes deckstrings deterministically, tracks repost lineage, and resolves cards through [api.kolodahearthstone.com](https://github.com/Manacost-Labs/api.kolodahearthstone.com). Full methodology and CLI contracts are in [Chinese Hearthstone intelligence](deep-research/references/chinese-hearthstone.md).
+It reads `SCRAPE_DO_API_TOKEN` and optionally `KHS_API_TOKEN` from the environment. It validates actual content before accepting HTTP 200, uses a private validated cache and cross-process local rate limiter, reports provider credits without exposing credentials, escalates `normal → render → super → super+render`, stops dead URLs and account/rate errors, preserves original Chinese, binds each deck to its own statistics block, decodes special-size deckstrings without false corruption errors, tracks repost lineage, and resolves cards through [api.kolodahearthstone.com](https://github.com/Manacost-Labs/api.kolodahearthstone.com). Full methodology and CLI contracts are in [Chinese Hearthstone intelligence](deep-research/references/chinese-hearthstone.md).
 
 ## Persistent professional workflow
 

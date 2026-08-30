@@ -1,7 +1,12 @@
 {
   "fetch": {
     "timeout_seconds": 60,
-    "max_attempts_per_level": 1
+    "max_attempts_per_level": 1,
+    "requests_per_minute": 30,
+    "max_rate_wait_seconds": 30,
+    "cache_enabled": true,
+    "cache_directory": null,
+    "cache_ttl_seconds": null
   },
   "score_weights": {
     "originality": 0.3,

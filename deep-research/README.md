@@ -67,7 +67,7 @@ python3 scripts/community_sources.py tinyfish-fetch --url https://example.com/so
 
 RedditAPI reads `REDDITAPIS_KEY`, GetXAPI reads `GETXAPI_KEY`, and TinyFish uses credentials managed by its own CLI. Keys are never command arguments or output. TinyFish search is locally capped at 30 calls per rolling minute. Provider output is still untrusted discovery material until the original source is inspected and converted into Source/Evidence records.
 
-For Chinese Hearthstone sources, `scripts/chinese_hearthstone.py` provides content-aware Scrape.do escalation, six source profiles, deterministic deckstring/statistics/provenance extraction, repost-lineage handling, Bilibili timestamp evidence, GuideHunter queries, and card resolution through `api.kolodahearthstone.com`.
+For Chinese Hearthstone sources, `scripts/chinese_hearthstone.py` provides content-aware Scrape.do escalation, a private validated cache, cross-process rate limiting, credit diagnostics, six source profiles, per-deck statistics binding, special-size deckstring assessment, source-attributed page metadata, deterministic provenance extraction, repost-lineage handling, Bilibili timestamp evidence, GuideHunter queries, and card resolution through `api.kolodahearthstone.com`.
 
 ```text
 python3 scripts/chinese_hearthstone.py doctor

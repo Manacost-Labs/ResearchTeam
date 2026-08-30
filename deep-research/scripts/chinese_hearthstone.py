@@ -32,12 +32,21 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
-SCHEMA_VERSION = "1.0"
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows fallback
+    fcntl = None
+
+SCHEMA_VERSION = "1.1"
 SCRAPE_DO_TOKEN_ENV = "SCRAPE_DO_API_TOKEN"
 KHS_TOKEN_ENV = "KHS_API_TOKEN"
 SCRAPE_DO_ENDPOINT = "https://api.scrape.do/"
 KHS_BASE_URL = "https://api.kolodahearthstone.com"
 MAX_RESPONSE_BYTES = 5_000_000
+CACHE_FORMAT_VERSION = 1
+RATE_WINDOW_SECONDS = 60.0
+DEFAULT_REQUESTS_PER_MINUTE = 30
+DEFAULT_MAX_RATE_WAIT_SECONDS = 30.0
 
 
 class FetchStatus(str, Enum):
@@ -286,6 +295,205 @@ def clean_html(raw_html: str) -> tuple[str | None, str]:
     return parser.result()
 
 
+class _MetadataHTMLParser(HTMLParser):
+    """Collect declared HTML metadata without executing embedded content."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.meta: dict[str, str] = {}
+        self.time_values: list[str] = []
+        self.json_ld_blocks: list[str] = []
+        self._in_json_ld = False
+        self._json_ld_parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attrs_map = {key.lower(): value or "" for key, value in attrs}
+        if tag == "meta":
+            key = (
+                attrs_map.get("property")
+                or attrs_map.get("name")
+                or attrs_map.get("itemprop")
+                or ""
+            ).strip().lower()
+            content = attrs_map.get("content", "").strip()
+            if key and content and key not in self.meta:
+                self.meta[key] = content
+        elif tag == "time" and attrs_map.get("datetime", "").strip():
+            self.time_values.append(attrs_map["datetime"].strip())
+        elif tag == "script" and "ld+json" in attrs_map.get("type", "").lower():
+            self._in_json_ld = True
+            self._json_ld_parts = []
+
+    def handle_data(self, data: str) -> None:
+        if self._in_json_ld:
+            self._json_ld_parts.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "script" and self._in_json_ld:
+            block = "".join(self._json_ld_parts).strip()
+            if block:
+                self.json_ld_blocks.append(block)
+            self._in_json_ld = False
+            self._json_ld_parts = []
+
+
+@dataclass
+class PageMetadata:
+    author: str | None = None
+    publisher: str | None = None
+    published_at: str | None = None
+    modified_at: str | None = None
+    field_sources: dict[str, str] = field(default_factory=dict)
+
+
+def _json_ld_nodes(value: Any) -> Iterable[Mapping[str, Any]]:
+    if isinstance(value, Mapping):
+        yield value
+        graph = value.get("@graph")
+        if isinstance(graph, (list, Mapping)):
+            yield from _json_ld_nodes(graph)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _json_ld_nodes(item)
+
+
+def _entity_name(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value.strip() or None
+    if isinstance(value, Mapping):
+        name = value.get("name")
+        return str(name).strip() if name else None
+    if isinstance(value, list):
+        names = [name for item in value if (name := _entity_name(item))]
+        return ", ".join(names) or None
+    return None
+
+
+def _normalize_timestamp(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
+        try:
+            return datetime.strptime(raw, "%Y-%m-%d").date().isoformat()
+        except ValueError:
+            return None
+    normalized = raw.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized).isoformat()
+    except ValueError:
+        pass
+    for pattern in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S"):
+        try:
+            return datetime.strptime(raw, pattern).isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def _title_date(title: str | None) -> str | None:
+    match = re.search(r"(?<!\d)(20\d{6})(?!\d)", title or "")
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y%m%d").date().isoformat()
+    except ValueError:
+        return None
+
+
+def extract_page_metadata(
+    raw: str, clean_text: str, title: str | None
+) -> PageMetadata:
+    parser = _MetadataHTMLParser()
+    try:
+        parser.feed(raw)
+        parser.close()
+    except (TypeError, ValueError):
+        return PageMetadata()
+
+    metadata = PageMetadata()
+    nodes: list[Mapping[str, Any]] = []
+    for block in parser.json_ld_blocks:
+        try:
+            payload = json.loads(block)
+        except json.JSONDecodeError:
+            continue
+        nodes.extend(_json_ld_nodes(payload))
+
+    for node in nodes:
+        if metadata.author is None and (author := _entity_name(node.get("author"))):
+            metadata.author = author
+            metadata.field_sources["author"] = "json-ld:author"
+        if metadata.publisher is None and (
+            publisher := _entity_name(node.get("publisher"))
+        ):
+            metadata.publisher = publisher
+            metadata.field_sources["publisher"] = "json-ld:publisher"
+        if metadata.published_at is None:
+            for key in ("datePublished", "pubDate"):
+                if value := _normalize_timestamp(node.get(key)):
+                    metadata.published_at = value
+                    metadata.field_sources["published_at"] = f"json-ld:{key}"
+                    break
+        if metadata.modified_at is None:
+            for key in ("dateModified", "upDate"):
+                if value := _normalize_timestamp(node.get(key)):
+                    metadata.modified_at = value
+                    metadata.field_sources["modified_at"] = f"json-ld:{key}"
+                    break
+
+    if metadata.author is None:
+        byline = re.search(r"(?:^|\n)([^\n]{1,40})\s+Lv\.\d+(?:\n|$)", clean_text)
+        if byline:
+            metadata.author = byline.group(1).strip()
+            metadata.field_sources["author"] = "visible-byline:lv"
+    if metadata.author is None:
+        for key in ("article:author", "author", "byl"):
+            if value := parser.meta.get(key):
+                metadata.author = value
+                metadata.field_sources["author"] = f"meta:{key}"
+                break
+
+    if metadata.publisher is None:
+        for key in ("og:site_name", "application-name"):
+            if value := parser.meta.get(key):
+                metadata.publisher = value
+                metadata.field_sources["publisher"] = f"meta:{key}"
+                break
+    if metadata.publisher is None and parser.meta.get("author"):
+        metadata.publisher = parser.meta["author"]
+        metadata.field_sources["publisher"] = "meta:author"
+
+    if metadata.published_at is None:
+        for key in (
+            "article:published_time",
+            "datepublished",
+            "pubdate",
+            "publishdate",
+        ):
+            if value := _normalize_timestamp(parser.meta.get(key)):
+                metadata.published_at = value
+                metadata.field_sources["published_at"] = f"meta:{key}"
+                break
+    if metadata.modified_at is None:
+        for key in ("article:modified_time", "datemodified", "lastmod"):
+            if value := _normalize_timestamp(parser.meta.get(key)):
+                metadata.modified_at = value
+                metadata.field_sources["modified_at"] = f"meta:{key}"
+                break
+
+    if metadata.published_at is None and parser.time_values:
+        if value := _normalize_timestamp(parser.time_values[0]):
+            metadata.published_at = value
+            metadata.field_sources["published_at"] = "html:time[datetime]"
+    if metadata.published_at is None and (value := _title_date(title)):
+        metadata.published_at = value
+        metadata.field_sources["published_at"] = "title:yyyymmdd"
+    return metadata
+
+
 @dataclass
 class ValidationResult:
     valid: bool
@@ -359,8 +567,11 @@ class FetchAttempt:
     status: FetchStatus
     status_code: int | None
     elapsed_ms: int
+    provider_status_code: int | None = None
+    rate_limit_wait_ms: int = 0
     retry_after: str | None = None
     request_cost: str | None = None
+    remaining_credits: str | None = None
     reasons: list[str] = field(default_factory=list)
 
 
@@ -377,6 +588,9 @@ class FetchResult:
     content_type: str | None
     attempts: list[FetchAttempt]
     browser_fallback_required: bool = False
+    cache_status: str = "BYPASS"
+    cache_age_seconds: int | None = None
+    diagnostic_codes: list[str] = field(default_factory=list)
 
     def public_dict(self, include_body: bool = False) -> dict[str, Any]:
         result = asdict(self)
@@ -385,6 +599,49 @@ class FetchResult:
             attempt["status"] = attempt["status"].value
         if not include_body:
             result.pop("body", None)
+        reported_costs: list[float] = []
+        for attempt in self.attempts:
+            if attempt.request_cost is not None:
+                try:
+                    reported_costs.append(float(attempt.request_cost))
+                except ValueError:
+                    pass
+        error_codes = list(
+            dict.fromkeys(
+                [
+                    *self.diagnostic_codes,
+                    *(
+                        reason
+                        for attempt in self.attempts
+                        for reason in attempt.reasons
+                    ),
+                ]
+            )
+        )
+        result["diagnostics"] = {
+            "cache": {
+                "status": self.cache_status,
+                "age_seconds": self.cache_age_seconds,
+            },
+            "network_requests": sum(
+                attempt.level != "local_rate_limit" for attempt in self.attempts
+            ),
+            "reported_credits_used": round(sum(reported_costs), 4),
+            "unattributed_cost_attempts": sum(
+                attempt.level != "local_rate_limit"
+                and attempt.request_cost is None
+                for attempt in self.attempts
+            ),
+            "remaining_credits": next(
+                (
+                    attempt.remaining_credits
+                    for attempt in reversed(self.attempts)
+                    if attempt.remaining_credits is not None
+                ),
+                None,
+            ),
+            "codes": error_codes,
+        }
         return result
 
 
@@ -413,6 +670,125 @@ def _header(headers: Mapping[str, str], name: str) -> str | None:
     )
 
 
+def default_runtime_dir() -> Path:
+    configured = os.environ.get("DEEP_RESEARCH_CACHE_DIR", "").strip()
+    if configured:
+        return Path(configured).expanduser() / "chinese-hearthstone"
+    return Path.home() / ".cache" / "deep-research" / "chinese-hearthstone"
+
+
+class SlidingWindowRateLimiter:
+    """Cross-process local limiter for provider requests."""
+
+    def __init__(
+        self,
+        limit: int = DEFAULT_REQUESTS_PER_MINUTE,
+        *,
+        window_seconds: float = RATE_WINDOW_SECONDS,
+        state_dir: Path | None = None,
+        clock: Callable[[], float] = time.time,
+    ) -> None:
+        if limit < 1:
+            raise ValueError("Rate limit must be at least one request per window.")
+        if window_seconds <= 0:
+            raise ValueError("Rate-limit window must be positive.")
+        self.limit = limit
+        self.window_seconds = window_seconds
+        self.state_dir = state_dir or default_runtime_dir()
+        self.clock = clock
+
+    def reserve(self) -> float:
+        """Reserve one request or return seconds until capacity is available."""
+
+        timestamp = self.clock()
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        state_path = self.state_dir / "scrape-do-rate.json"
+        lock_path = self.state_dir / "scrape-do-rate.lock"
+        with lock_path.open("a+", encoding="utf-8") as lock_file:
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                try:
+                    raw = json.loads(state_path.read_text(encoding="utf-8"))
+                    events = [
+                        float(value)
+                        for value in raw
+                        if float(value) > timestamp - self.window_seconds
+                    ]
+                except (FileNotFoundError, json.JSONDecodeError, TypeError, ValueError):
+                    events = []
+                if len(events) >= self.limit:
+                    return max(0.001, self.window_seconds - (timestamp - min(events)))
+                events.append(timestamp)
+                temporary = state_path.with_suffix(".tmp")
+                temporary.write_text(json.dumps(events), encoding="utf-8")
+                os.chmod(temporary, 0o600)
+                os.replace(temporary, state_path)
+                return 0.0
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+class FetchCache:
+    """Private on-disk cache containing successful public source responses."""
+
+    def __init__(self, directory: Path | None = None) -> None:
+        self.directory = directory or default_runtime_dir() / "responses"
+
+    @staticmethod
+    def _key(target_url: str, profile: SourceProfile) -> str:
+        material = f"{CACHE_FORMAT_VERSION}\n{profile.key}\n{target_url}"
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+    def load(
+        self, target_url: str, profile: SourceProfile, ttl_seconds: float
+    ) -> tuple[dict[str, Any] | None, int | None, str]:
+        path = self.directory / f"{self._key(target_url, profile)}.json"
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            created_at = float(payload["created_at"])
+            age = max(0, int(time.time() - created_at))
+            if (
+                payload.get("cache_format_version") != CACHE_FORMAT_VERSION
+                or payload.get("requested_url") != target_url
+                or payload.get("profile") != profile.key
+                or not isinstance(payload.get("body"), str)
+            ):
+                return None, age, "INVALID"
+            if age > ttl_seconds:
+                return None, age, "STALE"
+            return payload, age, "HIT"
+        except FileNotFoundError:
+            return None, None, "MISS"
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+            return None, None, "INVALID"
+
+    def store(self, result: FetchResult) -> None:
+        if result.status != FetchStatus.SUCCESS or result.body is None:
+            return
+        self.directory.mkdir(parents=True, exist_ok=True)
+        cache_key = self._key(result.requested_url, SOURCE_PROFILES[result.profile])
+        path = self.directory / f"{cache_key}.json"
+        payload = {
+            "cache_format_version": CACHE_FORMAT_VERSION,
+            "created_at": time.time(),
+            "requested_url": result.requested_url,
+            "resolved_url": result.resolved_url,
+            "profile": result.profile,
+            "fetched_at": result.fetched_at,
+            "body": result.body,
+            "content_type": result.content_type,
+        }
+        temporary = path.with_suffix(f".{os.getpid()}.{time.time_ns()}.tmp")
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+
+
 class ScrapeDoClient:
     """Bounded Scrape.do client with content-aware mode escalation."""
 
@@ -423,17 +799,27 @@ class ScrapeDoClient:
         timeout: float = 60.0,
         max_attempts_per_level: int = 1,
         max_retry_after: float = 30.0,
+        max_rate_wait: float = DEFAULT_MAX_RATE_WAIT_SECONDS,
         transport: Transport = _urllib_transport,
         sleep: Callable[[float], None] = time.sleep,
         rng: random.Random | None = None,
+        rate_limiter: SlidingWindowRateLimiter | None = None,
+        cache: FetchCache | None = None,
+        cache_ttl_seconds: float | None = None,
+        refresh: bool = False,
     ) -> None:
         self._token = (token or os.environ.get(SCRAPE_DO_TOKEN_ENV, "")).strip()
         self.timeout = timeout
         self.max_attempts_per_level = max(1, min(max_attempts_per_level, 3))
         self.max_retry_after = max_retry_after
+        self.max_rate_wait = max(0.0, max_rate_wait)
         self.transport = transport
         self.sleep = sleep
         self.rng = rng or random.Random()
+        self.rate_limiter = rate_limiter
+        self.cache = cache
+        self.cache_ttl_seconds = cache_ttl_seconds
+        self.refresh = refresh
 
     @property
     def configured(self) -> bool:
@@ -487,6 +873,43 @@ class ScrapeDoClient:
     def fetch(self, target_url: str, profile: SourceProfile) -> FetchResult:
         target_url = canonical_url(target_url)
         attempts: list[FetchAttempt] = []
+        diagnostic_codes: list[str] = []
+        cache_status = "BYPASS"
+        cache_age: int | None = None
+        if self.cache is not None:
+            cache_status = "REFRESH" if self.refresh else "MISS"
+            if not self.refresh:
+                ttl_seconds = (
+                    self.cache_ttl_seconds
+                    if self.cache_ttl_seconds is not None
+                    else profile.poll_minutes * 60
+                )
+                cached, cache_age, cache_status = self.cache.load(
+                    target_url, profile, max(0.0, ttl_seconds)
+                )
+                if cached is not None:
+                    body = cached["body"]
+                    content_type = cached.get("content_type") or "text/html"
+                    validation = validate_content(
+                        body, profile, content_type=content_type
+                    )
+                    if validation.valid:
+                        return FetchResult(
+                            FetchStatus.SUCCESS,
+                            target_url,
+                            cached.get("resolved_url") or target_url,
+                            profile.key,
+                            cached.get("fetched_at") or utc_now(),
+                            body,
+                            validation.clean_text,
+                            validation.title,
+                            content_type,
+                            [],
+                            cache_status="HIT",
+                            cache_age_seconds=cache_age,
+                        )
+                    cache_status = "INVALID"
+                    diagnostic_codes.append("cached_content_invalid")
         last_status = FetchStatus.NETWORK_ERROR
         last_body: str | None = None
         last_clean: str | None = None
@@ -496,6 +919,77 @@ class ScrapeDoClient:
 
         for level in ESCALATION_LEVELS:
             for attempt_number in range(self.max_attempts_per_level):
+                rate_wait_ms = 0
+                if self.rate_limiter is not None:
+                    total_wait = 0.0
+                    try:
+                        while True:
+                            wait_seconds = self.rate_limiter.reserve()
+                            if wait_seconds <= 0:
+                                break
+                            if total_wait + wait_seconds > self.max_rate_wait:
+                                last_status = FetchStatus.RATE_LIMITED
+                                attempts.append(
+                                    FetchAttempt(
+                                        "local_rate_limit",
+                                        last_status,
+                                        429,
+                                        0,
+                                        rate_limit_wait_ms=int(total_wait * 1000),
+                                        retry_after=str(max(1, int(wait_seconds + 0.999))),
+                                        reasons=["local_rate_limit"],
+                                    )
+                                )
+                                return FetchResult(
+                                    last_status,
+                                    target_url,
+                                    None,
+                                    profile.key,
+                                    utc_now(),
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    attempts,
+                                    cache_status=cache_status,
+                                    cache_age_seconds=cache_age,
+                                    diagnostic_codes=[
+                                        *diagnostic_codes,
+                                        "local_rate_limit",
+                                    ],
+                                )
+                            self.sleep(wait_seconds)
+                            total_wait += wait_seconds
+                        rate_wait_ms = int(total_wait * 1000)
+                    except OSError:
+                        last_status = FetchStatus.RATE_LIMITED
+                        attempts.append(
+                            FetchAttempt(
+                                "local_rate_limit",
+                                last_status,
+                                None,
+                                0,
+                                reasons=["local_rate_limiter_unavailable"],
+                            )
+                        )
+                        return FetchResult(
+                            last_status,
+                            target_url,
+                            None,
+                            profile.key,
+                            utc_now(),
+                            None,
+                            None,
+                            None,
+                            None,
+                            attempts,
+                            cache_status=cache_status,
+                            cache_age_seconds=cache_age,
+                            diagnostic_codes=[
+                                *diagnostic_codes,
+                                "local_rate_limiter_unavailable",
+                            ],
+                        )
                 started = time.monotonic()
                 try:
                     request = self._provider_request(target_url, level)
@@ -511,6 +1005,7 @@ class ScrapeDoClient:
                             last_status,
                             None,
                             elapsed,
+                            rate_limit_wait_ms=rate_wait_ms,
                             reasons=["network_error"],
                         )
                     )
@@ -541,6 +1036,7 @@ class ScrapeDoClient:
                 )
                 retry_after = self._retry_after(headers)
                 request_cost = _header(headers, "Scrape.do-Request-Cost")
+                remaining_credits = _header(headers, "Scrape.do-Remaining-Credits")
                 if len(body_bytes) > MAX_RESPONSE_BYTES:
                     validation = ValidationResult(
                         False,
@@ -555,8 +1051,11 @@ class ScrapeDoClient:
                         validation.status,
                         target_status,
                         elapsed,
+                        provider_status_code=status_code,
+                        rate_limit_wait_ms=rate_wait_ms,
                         retry_after=retry_after,
                         request_cost=request_cost,
+                        remaining_credits=remaining_credits,
                         reasons=validation.reasons,
                     )
                 )
@@ -567,7 +1066,7 @@ class ScrapeDoClient:
                 last_type = content_type
                 last_resolved = _header(headers, "Scrape.do-Resolved-Url") or target_url
                 if validation.valid:
-                    return FetchResult(
+                    result = FetchResult(
                         FetchStatus.SUCCESS,
                         target_url,
                         last_resolved,
@@ -578,7 +1077,16 @@ class ScrapeDoClient:
                         validation.title,
                         content_type,
                         attempts,
+                        cache_status=cache_status,
+                        cache_age_seconds=cache_age,
+                        diagnostic_codes=diagnostic_codes,
                     )
+                    if self.cache is not None:
+                        try:
+                            self.cache.store(result)
+                        except (OSError, KeyError):
+                            result.diagnostic_codes.append("cache_write_failed")
+                    return result
                 retryable = validation.status in {
                     FetchStatus.RATE_LIMITED,
                     FetchStatus.NETWORK_ERROR,
@@ -607,6 +1115,9 @@ class ScrapeDoClient:
             attempts,
             browser_fallback_required=last_status
             in {FetchStatus.BLOCKED, FetchStatus.INCOMPLETE, FetchStatus.PARSE_ERROR},
+            cache_status=cache_status,
+            cache_age_seconds=cache_age,
+            diagnostic_codes=diagnostic_codes,
         )
 
 
@@ -636,6 +1147,8 @@ class Deck:
     validation_errors: list[str] = field(default_factory=list)
     cards_total: int = 0
     fingerprint: str = ""
+    validation_warnings: list[str] = field(default_factory=list)
+    deck_size_status: str = "EXPECTED"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -652,6 +1165,7 @@ def deck_fingerprint(cards: Mapping[int, int]) -> str:
 def decode_deckstring(deckstring: str, *, expected_cards: int | None = 30) -> Deck:
     normalized = re.sub(r"\s+", "", deckstring).strip()
     errors: list[str] = []
+    warnings: list[str] = []
     try:
         padding = "=" * ((4 - len(normalized) % 4) % 4)
         raw = base64.b64decode(normalized + padding, validate=True)
@@ -715,8 +1229,16 @@ def decode_deckstring(deckstring: str, *, expected_cards: int | None = 30) -> De
         errors.append("trailing_deckstring_data")
 
     cards_total = sum(cards.values())
-    if expected_cards is not None and cards_total != expected_cards:
-        errors.append(f"unexpected_card_total:{cards_total}")
+    if expected_cards is None:
+        deck_size_status = "UNCHECKED"
+    elif cards_total == expected_cards:
+        deck_size_status = "EXPECTED"
+    else:
+        # Rulebreaker cards and other client-supported mechanics may encode
+        # generated or auxiliary cards in addition to the playable deck. A
+        # size mismatch is therefore a review signal, not structural damage.
+        warnings.append(f"unexpected_card_total:{cards_total}")
+        deck_size_status = "SPECIAL_OR_UNVERIFIED"
     if any(dbf <= 0 for dbf in cards):
         errors.append("invalid_dbf_id")
     return Deck(
@@ -729,34 +1251,44 @@ def decode_deckstring(deckstring: str, *, expected_cards: int | None = 30) -> De
         errors,
         cards_total,
         deck_fingerprint(cards),
+        warnings,
+        deck_size_status,
     )
 
 
 DECKSTRING_PATTERN = re.compile(r"(?<![A-Za-z0-9+/])AAE[A-Za-z0-9+/_=-]{18,}")
 
 
-def extract_deckstrings(text: str, *, expected_cards: int | None = 30) -> list[Deck]:
-    decks: list[Deck] = []
+def _deck_occurrences(
+    text: str, *, expected_cards: int | None = 30, deduplicate: bool = True
+) -> list[tuple[Deck, int, int]]:
+    occurrences: list[tuple[Deck, int, int]] = []
     seen: set[str] = set()
     for match in DECKSTRING_PATTERN.finditer(text):
         candidate = match.group(0).rstrip(".,;:!?，。；：！？)]}〉》")
-        if candidate in seen:
+        if deduplicate and candidate in seen:
             continue
         seen.add(candidate)
         try:
-            decks.append(decode_deckstring(candidate, expected_cards=expected_cards))
+            deck = decode_deckstring(candidate, expected_cards=expected_cards)
         except ValueError as exc:
-            decks.append(
-                Deck(
-                    candidate,
-                    0,
-                    [],
-                    {},
-                    valid=False,
-                    validation_errors=[str(exc)],
-                )
+            deck = Deck(
+                candidate,
+                0,
+                [],
+                {},
+                valid=False,
+                validation_errors=[str(exc)],
             )
-    return decks
+        occurrences.append((deck, match.start(), match.start() + len(candidate)))
+    return occurrences
+
+
+def extract_deckstrings(text: str, *, expected_cards: int | None = 30) -> list[Deck]:
+    return [
+        deck
+        for deck, _, _ in _deck_occurrences(text, expected_cards=expected_cards)
+    ]
 
 
 @dataclass
@@ -905,24 +1437,130 @@ def extract_cn_stats(text: str) -> CNStats:
     )
 
 
+def _has_cn_stats(stats: CNStats) -> bool:
+    return any(value is not None for value in asdict(stats).values())
+
+
+_DECK_LABEL_SKIP_MARKERS = (
+    "复制代码",
+    "跳转详情",
+    "卡组代码",
+    "卡组简析",
+    "卡组介绍",
+    "服务器",
+    "总场数",
+    "胜率",
+    "排名区间",
+    "平均对局时长",
+    "最后更新时间",
+)
+
+
+def _is_deck_label_candidate(line: str) -> bool:
+    normalized = line.strip(" #*-｜|")
+    if not normalized or len(normalized) > 50:
+        return False
+    if DECKSTRING_PATTERN.search(normalized) or re.match(r"^https?://", normalized):
+        return False
+    if any(marker in normalized for marker in _DECK_LABEL_SKIP_MARKERS):
+        return False
+    if re.match(r"^(?:赢|输|粉尘|传说|史诗|普通|稀有)\s*[:：]", normalized):
+        return False
+    return bool(re.search(r"[\u3400-\u9fff]", normalized))
+
+
+def _extract_deck_label(after: str, before: str) -> str | None:
+    after_lines = [line.strip() for line in after.splitlines() if line.strip()]
+    for index, line in enumerate(after_lines):
+        if re.match(r"^服务器\s*[:：]", line):
+            for candidate in after_lines[index + 1 : index + 4]:
+                if _is_deck_label_candidate(candidate):
+                    return candidate.strip(" #*-｜|")
+
+    combined = f"{before[-600:]}\n{after[:600]}"
+    class_label = re.search(
+        r"(?:^|\n)\s*((?:德鲁伊|潜行者|萨满祭司|萨满|法师|猎人|"
+        r"圣骑士|牧师|术士|战士|恶魔猎手|死亡骑士)\s*[｜|]\s*"
+        r"[^\n]{1,30})",
+        combined,
+    )
+    if class_label:
+        return class_label.group(1).strip()
+
+    before_lines = [line.strip() for line in before.splitlines() if line.strip()]
+    for candidate in reversed(before_lines[-8:]):
+        if _is_deck_label_candidate(candidate):
+            return candidate.strip(" #*-｜|")
+    return None
+
+
+def extract_deck_records(
+    text: str, *, expected_cards: int | None = 30
+) -> list[dict[str, Any]]:
+    """Associate each deck code with its nearest label and statistics block."""
+    occurrences = _deck_occurrences(
+        text, expected_cards=expected_cards, deduplicate=False
+    )
+    records: list[dict[str, Any]] = []
+    for index, (deck, start, end) in enumerate(occurrences, start=1):
+        next_start = (
+            occurrences[index][1] if index < len(occurrences) else len(text)
+        )
+        previous_end = occurrences[index - 2][2] if index > 1 else 0
+        before = text[previous_end:start]
+        after = text[end:next_start]
+        stats = extract_cn_stats(after)
+        if len(occurrences) == 1 and not _has_cn_stats(stats):
+            stats = extract_cn_stats(text)
+        context = after.strip() or before.strip()
+        records.append(
+            {
+                "index": index,
+                "archetype_zh": _extract_deck_label(after, before),
+                "deck": deck.as_dict(),
+                "statistics": asdict(stats),
+                "source_locator": {"start": start, "end": next_start},
+                "context_hash": hashlib.sha256(context.encode("utf-8")).hexdigest(),
+            }
+        )
+    return records
+
+
 @dataclass
 class Provenance:
     original_author: str | None = None
     original_source: str | None = None
     attribution_url: str | None = None
     repost_markers: list[str] = field(default_factory=list)
+    attribution_quality: str = "NONE"
 
 
 def extract_provenance(text: str) -> Provenance:
-    source = re.search(r"(?:来源|转载自|原文)\s*[:：]\s*([^\n，。；]{1,100})", text)
-    author = re.search(r"(?:作者|原作者)\s*[:：]\s*([^\n，。；]{1,60})", text)
+    source = re.search(
+        r"(?:来源|转载自|原文)\s*[:：]\s*([^\n，。；】\]]{1,100})", text
+    )
+    author = re.search(
+        r"(?:作者|原作者)\s*[:：]\s*([^\n，。；】\]]{1,60})", text
+    )
+    if author is None:
+        author = re.search(r"本期由\s*([^\n，。；】\]]{1,60}?)\s*给大家带来", text)
     url = re.search(r"https?://[^\s<>'\"]+", text)
     markers = [marker for marker in ("来源", "转载", "搬运", "原文") if marker in text]
+    source_value = source.group(1).strip() if source else None
+    author_value = author.group(1).strip() if author else None
+    attribution_url = url.group(0).rstrip(".,;，。；") if url else None
     return Provenance(
-        original_author=author.group(1).strip() if author else None,
-        original_source=source.group(1).strip() if source else None,
-        attribution_url=url.group(0).rstrip(".,;，。；") if url else None,
+        original_author=author_value,
+        original_source=source_value,
+        attribution_url=attribution_url,
         repost_markers=markers,
+        attribution_quality=(
+            "DIRECT_URL"
+            if attribution_url
+            else "PARTIAL"
+            if source_value or author_value
+            else "NONE"
+        ),
     )
 
 
@@ -1099,10 +1737,27 @@ class KolodaCardDatabase:
                 missing.append(dbf_id)
                 continue
             cards.append({**card, "count": count})
+        noncollectible = [
+            card for card in cards if card.get("collectible") is False
+        ]
+        if deck.deck_size_status == "EXPECTED":
+            size_assessment = "EXPECTED"
+        elif noncollectible:
+            size_assessment = "SPECIAL_ENCODING_DETECTED"
+        else:
+            size_assessment = "SPECIAL_OR_UNVERIFIED"
         return {
             "cards": cards,
             "missing_dbf_ids": missing,
             "complete": not missing and len(cards) == len(deck.cards),
+            "deck_size_assessment": size_assessment,
+            "collectible_entries_total": sum(
+                card["count"] for card in cards if card.get("collectible") is True
+            ),
+            "noncollectible_entries_total": sum(
+                card["count"] for card in noncollectible
+            ),
+            "noncollectible_dbf_ids": [card["dbf"] for card in noncollectible],
             "source": self.base_url,
         }
 
@@ -1398,6 +2053,12 @@ def pipeline_metrics(
         bool(document.get("provenance", {}).get("original_source"))
         for document in document_rows
     )
+    cache_hits = sum(fetch.cache_status == "HIT" for fetch in fetch_rows)
+    network_requests = sum(
+        attempt.level != "local_rate_limit"
+        for fetch in fetch_rows
+        for attempt in fetch.attempts
+    )
     return {
         "pages_discovered": len(fetch_rows),
         "pages_fetched": sum(
@@ -1410,6 +2071,22 @@ def pipeline_metrics(
         "rate_limited_pages": sum(
             fetch.status == FetchStatus.RATE_LIMITED for fetch in fetch_rows
         ),
+        "local_rate_limited_pages": sum(
+            any(attempt.level == "local_rate_limit" for attempt in fetch.attempts)
+            for fetch in fetch_rows
+        ),
+        "network_requests": network_requests,
+        "local_rate_limit_wait_ms": sum(
+            attempt.rate_limit_wait_ms
+            for fetch in fetch_rows
+            for attempt in fetch.attempts
+        ),
+        "cache_hits": cache_hits,
+        "cache_misses": sum(
+            fetch.cache_status in {"MISS", "STALE", "INVALID", "REFRESH"}
+            for fetch in fetch_rows
+        ),
+        "cache_hit_rate": round(cache_hits / max(len(fetch_rows), 1), 4),
         "browser_fallback_rate": round(
             sum(fetch.browser_fallback_required for fetch in fetch_rows)
             / max(len(fetch_rows), 1),
@@ -1469,12 +2146,17 @@ def inspect_document(
 ) -> dict[str, Any]:
     validation = validate_content(raw, profile, content_type=content_type)
     clean_text = validation.clean_text
-    decks = extract_deckstrings(clean_text)
+    deck_records = extract_deck_records(clean_text)
+    decks = [deck.as_dict() for deck in extract_deckstrings(clean_text)]
     stats = extract_cn_stats(clean_text)
     provenance = extract_provenance(clean_text)
+    page_metadata = extract_page_metadata(raw, clean_text, validation.title)
     comparison = None
-    if western_deck and decks and decks[0].valid:
-        comparison = compare_decks(western_deck.cards, decks[0].cards)
+    if western_deck and decks and decks[0]["valid"]:
+        comparison = compare_decks(
+            western_deck.cards,
+            {int(key): value for key, value in decks[0]["cards"].items()},
+        )
     classification = classify_cn_deck(
         clean_text,
         stats,
@@ -1485,6 +2167,29 @@ def inspect_document(
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     source_id = hashlib.sha256(canonical_url(source_url).encode()).hexdigest()[:16]
     observed_at = utc_now()
+    for record in deck_records:
+        record_stats = CNStats(**record["statistics"])
+        record_comparison = comparison if record["index"] == 1 else None
+        record_classification = classify_cn_deck(
+            clean_text,
+            record_stats,
+            provenance,
+            western_match_checked=western_match_checked,
+            comparison=record_comparison,
+        )
+        fingerprint = record["deck"].get("fingerprint") or record["deck"].get(
+            "deckstring", ""
+        )
+        record["record_id"] = hashlib.sha256(
+            f"{source_id}|{fingerprint}|{record['context_hash']}".encode()
+        ).hexdigest()[:20]
+        record["source_id"] = source_id
+        record["classification"] = {
+            "label": record_classification.label.value,
+            "confidence": record_classification.confidence,
+            "signals": record_classification.signals,
+            "comparison": record_classification.comparison,
+        }
     return {
         "schema_version": SCHEMA_VERSION,
         "source": profile.key,
@@ -1493,8 +2198,11 @@ def inspect_document(
         "fetched_at": observed_at,
         "language": "zh-CN",
         "title": validation.title,
-        "author": provenance.original_author,
-        "published_at": None,
+        "author": provenance.original_author or page_metadata.author,
+        "publisher": page_metadata.publisher,
+        "published_at": page_metadata.published_at,
+        "modified_at": page_metadata.modified_at,
+        "page_metadata": asdict(page_metadata),
         "content_hash": digest,
         "validation": {
             "valid": validation.valid,
@@ -1502,7 +2210,8 @@ def inspect_document(
             "reasons": validation.reasons,
         },
         "clean_text_zh": clean_text,
-        "decks": [deck.as_dict() for deck in decks],
+        "decks": decks,
+        "deck_records": deck_records,
         "statistics": asdict(stats),
         "provenance": asdict(provenance),
         "classification": {
@@ -1535,7 +2244,15 @@ def inspect_document(
 def load_config(path: Path | None) -> dict[str, Any]:
     config = {
         "score_weights": DEFAULT_SCORE_WEIGHTS.copy(),
-        "fetch": {"timeout_seconds": 60, "max_attempts_per_level": 1},
+        "fetch": {
+            "timeout_seconds": 60,
+            "max_attempts_per_level": 1,
+            "requests_per_minute": DEFAULT_REQUESTS_PER_MINUTE,
+            "max_rate_wait_seconds": DEFAULT_MAX_RATE_WAIT_SECONDS,
+            "cache_enabled": True,
+            "cache_directory": None,
+            "cache_ttl_seconds": None,
+        },
         "sources": {
             key: {"poll_minutes": profile.poll_minutes, "enabled": True}
             for key, profile in SOURCE_PROFILES.items()
@@ -1567,6 +2284,10 @@ def doctor() -> dict[str, Any]:
             "configured": bool(os.environ.get(SCRAPE_DO_TOKEN_ENV, "").strip()),
             "credential_env": SCRAPE_DO_TOKEN_ENV,
             "escalation": [level.name for level in ESCALATION_LEVELS],
+            "local_rate_limit_per_minute": DEFAULT_REQUESTS_PER_MINUTE,
+            "max_local_rate_wait_seconds": DEFAULT_MAX_RATE_WAIT_SECONDS,
+            "cache_default": "enabled",
+            "cache_credential_content": False,
         },
         "koloda_card_database": {
             "base_url": KHS_BASE_URL,
@@ -1620,6 +2341,12 @@ def build_parser() -> argparse.ArgumentParser:
     fetch_parser.add_argument("--output", type=Path)
     fetch_parser.add_argument("--include-raw", action="store_true")
     fetch_parser.add_argument("--resolve-cards", action="store_true")
+    fetch_parser.add_argument(
+        "--refresh", action="store_true", help="Bypass a fresh cache entry."
+    )
+    fetch_parser.add_argument(
+        "--no-cache", action="store_true", help="Disable cache reads and writes."
+    )
 
     deck_parser = subparsers.add_parser(
         "deck", help="Decode and optionally resolve one deckstring."
@@ -1679,9 +2406,31 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "fetch":
             profile = profile_for(args.source, args.url)
             config = load_config(args.config)
+            fetch_config = config["fetch"]
+            cache_enabled = bool(fetch_config["cache_enabled"]) and not args.no_cache
+            configured_directory = fetch_config.get("cache_directory")
+            runtime_directory = (
+                Path(str(configured_directory)).expanduser()
+                if configured_directory
+                else default_runtime_dir()
+            )
             client = ScrapeDoClient(
-                timeout=float(config["fetch"]["timeout_seconds"]),
-                max_attempts_per_level=int(config["fetch"]["max_attempts_per_level"]),
+                timeout=float(fetch_config["timeout_seconds"]),
+                max_attempts_per_level=int(fetch_config["max_attempts_per_level"]),
+                max_rate_wait=float(fetch_config["max_rate_wait_seconds"]),
+                rate_limiter=SlidingWindowRateLimiter(
+                    int(fetch_config["requests_per_minute"]),
+                    state_dir=runtime_directory,
+                ),
+                cache=FetchCache(runtime_directory / "responses")
+                if cache_enabled
+                else None,
+                cache_ttl_seconds=(
+                    float(fetch_config["cache_ttl_seconds"])
+                    if fetch_config.get("cache_ttl_seconds") is not None
+                    else None
+                ),
+                refresh=args.refresh,
             )
             fetched = client.fetch(args.url, profile)
             result: dict[str, Any] = {"fetch": fetched.public_dict(args.include_raw)}
@@ -1697,18 +2446,26 @@ def main(argv: list[str] | None = None) -> int:
                     document["card_database"] = [
                         resolver.resolve_deck(
                             Deck(
-                                deck["deckstring"],
-                                deck["format_id"],
-                                deck["heroes"],
-                                {
+                                deckstring=deck["deckstring"],
+                                format_id=deck["format_id"],
+                                heroes=deck["heroes"],
+                                cards={
                                     int(key): value
                                     for key, value in deck["cards"].items()
                                 },
-                                [tuple(item) for item in deck["sideboards"]],
-                                deck["valid"],
-                                deck["validation_errors"],
-                                deck["cards_total"],
-                                deck["fingerprint"],
+                                sideboards=[
+                                    tuple(item) for item in deck["sideboards"]
+                                ],
+                                valid=deck["valid"],
+                                validation_errors=deck["validation_errors"],
+                                cards_total=deck["cards_total"],
+                                fingerprint=deck["fingerprint"],
+                                validation_warnings=deck.get(
+                                    "validation_warnings", []
+                                ),
+                                deck_size_status=deck.get(
+                                    "deck_size_status", "EXPECTED"
+                                ),
                             )
                         )
                         for deck in document["decks"]
