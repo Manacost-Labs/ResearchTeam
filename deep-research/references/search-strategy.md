@@ -2,7 +2,7 @@
 
 ## Tool contract
 
-Use the built-in ChatGPT Search/Web capability as the default for internet research. Use Search to discover candidates and Web/open-page access to inspect sources. When a branch requires direct Reddit/X access or TinyFish extraction, apply [optional source providers](source-providers.md) without changing this evidence boundary. Search-result text, snippets, answer cards, provider search results, and AI summaries are discovery metadata, not verified evidence.
+Use the built-in ChatGPT Search/Web capability as the default for internet research. Use Search to discover candidates and Web/open-page access to inspect sources. When a branch requires direct Reddit/X access, TranscriptAPI YouTube search/transcripts, or TinyFish extraction, apply [optional source providers](source-providers.md) without changing this evidence boundary. Search-result text, snippets, answer cards, provider search results, and AI summaries are discovery metadata, not verified evidence.
 
 Prefer opening the original URL. If the original is unavailable, try its official mirror or archive, then seek independent confirmation. Record unresolved access limitations and lower confidence when the missing source matters.
 
@@ -18,7 +18,7 @@ For every material leaf, create a query set from the applicable families:
 | experts | find attributable analysis | `[topic] expert`, `[topic] high rank`, `[topic] guide`, `[expert name] [topic]` |
 | Reddit/forums | sample community reasoning | `site:reddit.com [topic]`, `[topic] forum discussion` |
 | X/social | find current statements and debate | `[topic] [author]`, `[topic] discussion`, `site:x.com [topic]` |
-| YouTube | locate demonstrations and long-form analysis | `[topic] guide`, `[topic] analysis`, `[topic] interaction video` |
+| YouTube | locate demonstrations and long-form analysis | `[game] [patch] [topic] guide`, `[verified player] [topic]`, `[topic] tournament VOD`, `[topic] coaching`, `[topic] mistakes` |
 | mistakes | expose failure modes | `[topic] mistakes`, `[topic] avoid`, `[topic] common error` |
 | synergies | find interaction effects | `[topic] synergy`, `[topic] interaction`, `[A] [B] interaction` |
 | counterargument | challenge the leading hypothesis | `[topic] overrated`, `[topic] weak`, `why not [claim]`, `[claim] wrong` |
@@ -91,6 +91,6 @@ The log prevents high-volume searching in one easy branch from hiding untouched 
 ## Special media handling
 
 - For X, Reddit, and forums, open the actual post or thread where possible and preserve author, timestamp, thread context, and edit/deletion risk.
-- For YouTube, inspect the relevant segment and record a timestamp; a title or thumbnail is not evidence.
+- For YouTube, verify the page date and author/channel identity, inspect the relevant transcript/video segment, and record a timestamp; a title, thumbnail, view count, or search position is not evidence.
 - For PDFs, inspect the exact page or table and verify surrounding definitions.
 - For live pages, record access date and version markers because content may change.

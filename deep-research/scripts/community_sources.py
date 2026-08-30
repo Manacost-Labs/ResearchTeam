@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only adapters for RedditAPI, GetXAPI, and TinyFish.
+"""Read-only adapters for RedditAPI, GetXAPI, TinyFish, and TranscriptAPI.
 
 The adapters normalize discovery data into a small provider-neutral envelope.
 Credentials are read from the environment or managed by the TinyFish CLI and
@@ -9,8 +9,11 @@ are never included in output.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -18,9 +21,10 @@ import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+from collections.abc import Callable, Mapping
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 try:
@@ -32,11 +36,14 @@ except ImportError:  # pragma: no cover - Windows fallback
 SCHEMA_VERSION = "1.0"
 REDDIT_BASE_URL = "https://api.redditapis.com"
 GETX_BASE_URL = "https://api.getxapi.com"
+TRANSCRIPTAPI_BASE_URL = "https://api.transcriptapi.io"
 REDDIT_KEY_ENV = "REDDITAPIS_KEY"
 GETX_KEY_ENV = "GETXAPI_KEY"
+TRANSCRIPTAPI_KEY_ENV = "TRANSCRIPTAPI_TOKEN"
 TINYFISH_SEARCH_LIMIT = 30
 TINYFISH_FETCH_URL_LIMIT = 150
 RATE_WINDOW_SECONDS = 60
+MAX_PROVIDER_RESPONSE_BYTES = 10_000_000
 
 
 class ProviderError(RuntimeError):
@@ -49,11 +56,17 @@ class ProviderError(RuntimeError):
         *,
         status: int | None = None,
         retry_after: str | None = None,
+        provider_code: str | None = None,
+        retryable: bool | None = None,
+        credits_refunded: bool | None = None,
     ) -> None:
         super().__init__(message)
         self.provider = provider
         self.status = status
         self.retry_after = retry_after
+        self.provider_code = provider_code
+        self.retryable = retryable
+        self.credits_refunded = credits_refunded
 
     def as_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -64,6 +77,12 @@ class ProviderError(RuntimeError):
             result["status"] = self.status
         if self.retry_after:
             result["retry_after"] = self.retry_after
+        if self.provider_code:
+            result["provider_code"] = self.provider_code
+        if self.retryable is not None:
+            result["retryable"] = self.retryable
+        if self.credits_refunded is not None:
+            result["credits_refunded"] = self.credits_refunded
         return result
 
 
@@ -170,6 +189,113 @@ def get_json(
     if not isinstance(payload, dict):
         raise ProviderError(provider, "Provider returned an unexpected response shape.")
     return payload
+
+
+JsonTransport = Callable[[Request, float], tuple[int, Mapping[str, str], bytes]]
+
+
+def _urllib_json_transport(
+    request: Request, timeout: float
+) -> tuple[int, Mapping[str, str], bytes]:
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            return (
+                response.status,
+                response.headers,
+                response.read(MAX_PROVIDER_RESPONSE_BYTES + 1),
+            )
+    except HTTPError as exc:
+        return exc.code, exc.headers, exc.read(MAX_PROVIDER_RESPONSE_BYTES + 1)
+
+
+def transcriptapi_get_json(
+    path: str,
+    params: dict[str, Any],
+    *,
+    timeout: float = 60.0,
+    max_attempts: int = 2,
+    transport: JsonTransport = _urllib_json_transport,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    """Call one read-only TranscriptAPI endpoint with one bounded retry."""
+
+    key = require_key(TRANSCRIPTAPI_KEY_ENV, "transcriptapi")
+    clean_params = {
+        name: value for name, value in params.items() if value not in (None, "")
+    }
+    target = f"{TRANSCRIPTAPI_BASE_URL}{path}"
+    if clean_params:
+        target = f"{target}?{urlencode(clean_params)}"
+    request = Request(
+        target,
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Accept": "application/json",
+            "User-Agent": "deep-research-youtube/1.0",
+        },
+        method="GET",
+    )
+    attempts = max(1, min(max_attempts, 2))
+    for attempt in range(attempts):
+        try:
+            status, headers, body = transport(request, timeout)
+        except (URLError, TimeoutError, OSError) as exc:
+            if attempt + 1 < attempts:
+                sleep(1.5 * (attempt + 1))
+                continue
+            raise ProviderError(
+                "transcriptapi",
+                "Provider request failed after a bounded retry.",
+                retryable=True,
+            ) from exc
+        if len(body) > MAX_PROVIDER_RESPONSE_BYTES:
+            raise ProviderError(
+                "transcriptapi",
+                "Provider response exceeded the configured size limit.",
+                status=status,
+            )
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ProviderError(
+                "transcriptapi", "Provider returned invalid JSON.", status=status
+            ) from exc
+        if 200 <= status < 300:
+            if not isinstance(payload, dict):
+                raise ProviderError(
+                    "transcriptapi",
+                    "Provider returned an unexpected response shape.",
+                    status=status,
+                )
+            return payload
+        error = payload if isinstance(payload, dict) else {}
+        retryable_value = error.get("retryable")
+        retryable = retryable_value if isinstance(retryable_value, bool) else None
+        if status in {502, 503} and retryable is not False and attempt + 1 < attempts:
+            sleep(1.5 * (attempt + 1))
+            continue
+        retry_after = next(
+            (
+                str(value)
+                for name, value in headers.items()
+                if str(name).lower() == "retry-after"
+            ),
+            None,
+        )
+        raise ProviderError(
+            "transcriptapi",
+            f"Provider returned HTTP {status}.",
+            status=status,
+            retry_after=retry_after,
+            provider_code=str(error.get("error")) if error.get("error") else None,
+            retryable=retryable,
+            credits_refunded=(
+                bool(error["credits_refunded"])
+                if isinstance(error.get("credits_refunded"), bool)
+                else None
+            ),
+        )
+    raise ProviderError("transcriptapi", "Provider request failed.")
 
 
 def reddit_flags(post: dict[str, Any]) -> list[str]:
@@ -387,6 +513,299 @@ def normalize_x_search(
     )
 
 
+YOUTUBE_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+
+def youtube_video_id(value: str) -> str:
+    """Normalize a bare YouTube id or a common public video URL."""
+
+    candidate = value.strip()
+    if YOUTUBE_VIDEO_ID_RE.fullmatch(candidate):
+        return candidate
+    parts = urlsplit(candidate)
+    host = (parts.hostname or "").lower().removeprefix("www.")
+    video_id: str | None = None
+    if host == "youtu.be":
+        video_id = parts.path.strip("/").split("/", 1)[0]
+    elif host in {"youtube.com", "m.youtube.com", "music.youtube.com"}:
+        if parts.path.rstrip("/") == "/watch":
+            video_id = (parse_qs(parts.query).get("v") or [None])[0]
+        else:
+            path_parts = parts.path.strip("/").split("/")
+            if len(path_parts) >= 2 and path_parts[0] in {"shorts", "embed", "live"}:
+                video_id = path_parts[1]
+    if not video_id or not YOUTUBE_VIDEO_ID_RE.fullmatch(video_id):
+        raise ProviderError(
+            "transcriptapi", "Expected a YouTube video URL or 11-character video id."
+        )
+    return video_id
+
+
+def youtube_url(video_id: str, start: float | None = None) -> str:
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    if start is not None:
+        url = f"{url}&t={max(0, int(start))}s"
+    return url
+
+
+def parse_display_views(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    text = str(value).strip().upper().replace(",", "")
+    match = re.search(r"(\d+(?:\.\d+)?)\s*([KMB])?", text)
+    if not match:
+        return None
+    multiplier = {None: 1, "K": 1_000, "M": 1_000_000, "B": 1_000_000_000}
+    return int(float(match.group(1)) * multiplier[match.group(2)])
+
+
+def parse_display_duration(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    parts = str(value).strip().split(":")
+    if not 1 <= len(parts) <= 3 or any(not part.isdigit() for part in parts):
+        return None
+    total = 0
+    for part in parts:
+        total = total * 60 + int(part)
+    return total
+
+
+def normalize_youtube_search(
+    payload: dict[str, Any],
+    query: str,
+    limit: int,
+    *,
+    channel_id: str | None = None,
+) -> dict[str, Any]:
+    raw_results = payload.get("results")
+    if not isinstance(raw_results, list):
+        raw_results = []
+    results: list[dict[str, Any]] = []
+    for position, item in enumerate(raw_results, start=1):
+        if not isinstance(item, dict):
+            continue
+        raw_id = str(item.get("id") or "")
+        if not YOUTUBE_VIDEO_ID_RE.fullmatch(raw_id):
+            continue
+        results.append(
+            {
+                "platform": "youtube",
+                "source_kind": "video_search_result",
+                "source_id": raw_id,
+                "source_url": youtube_url(raw_id),
+                "title": item.get("title"),
+                "channel": item.get("channel"),
+                "metrics": {
+                    "views": parse_display_views(item.get("views")),
+                    "views_display": item.get("views"),
+                    "duration_seconds": parse_display_duration(item.get("duration")),
+                    "duration_display": item.get("duration"),
+                },
+                "provider_position": position,
+                "provider_rank_kind": "search_relevance",
+                "expertise": {
+                    "status": "channel_scoped_unverified"
+                    if channel_id
+                    else "unverified",
+                    "channel_id": channel_id,
+                    "rule": "Verify professional role independently; views and channel name are insufficient.",
+                },
+                "evidence_status": "discovery_only",
+            }
+        )
+    return envelope(
+        "transcriptapi",
+        "youtube_channel_search" if channel_id else "youtube_search",
+        {"query": query, "limit": limit, "channel_id": channel_id},
+        results,
+        warnings=[
+            "Search position is provider relevance, not quality, expertise, or popularity.",
+            "Search results omit an exact publication timestamp; verify freshness on the YouTube page.",
+            "A channel or view count does not establish professional-player status.",
+            "Search records are discovery_only until the video and relevant transcript segment are inspected.",
+            "TranscriptAPI is a third-party YouTube access provider.",
+        ],
+    )
+
+
+def transcript_windows(
+    segments: list[dict[str, Any]], span_seconds: float = 30.0
+) -> list[dict[str, Any]]:
+    windows: list[dict[str, Any]] = []
+    current: list[dict[str, Any]] = []
+    window_start = 0.0
+    for segment in segments:
+        start = float(segment["start"])
+        if current and start >= window_start + span_seconds:
+            windows.append(_transcript_window(current))
+            current = []
+        if not current:
+            window_start = start
+        current.append(segment)
+    if current:
+        windows.append(_transcript_window(current))
+    return windows
+
+
+def _transcript_window(segments: list[dict[str, Any]]) -> dict[str, Any]:
+    start = float(segments[0]["start"])
+    end = max(float(segment["end"]) for segment in segments)
+    video_id = str(segments[0]["video_id"])
+    return {
+        "start": start,
+        "end": round(end, 2),
+        "text": " ".join(str(segment["text"]).strip() for segment in segments).strip(),
+        "timestamp_url": youtube_url(video_id, start),
+        "segment_count": len(segments),
+    }
+
+
+def normalize_youtube_transcript(
+    payload: dict[str, Any],
+    video_id: str,
+    *,
+    language: str | None = None,
+    translate_to: str | None = None,
+    provider: str = "transcriptapi",
+    operation: str = "youtube_transcript",
+    extra_warnings: list[str] | None = None,
+) -> dict[str, Any]:
+    raw_segments = payload.get("transcript")
+    if not isinstance(raw_segments, list):
+        raw_segments = []
+    segments: list[dict[str, Any]] = []
+    for item in raw_segments:
+        if not isinstance(item, dict) or not isinstance(item.get("text"), str):
+            continue
+        try:
+            start = max(0.0, float(item.get("start", 0.0)))
+            duration = max(0.0, float(item.get("duration", 0.0)))
+        except (TypeError, ValueError):
+            continue
+        segments.append(
+            {
+                "video_id": video_id,
+                "start": round(start, 2),
+                "duration": round(duration, 2),
+                "end": round(start + duration, 2),
+                "text": item["text"],
+                "timestamp_url": youtube_url(video_id, start),
+            }
+        )
+    digest = hashlib.sha256(
+        json.dumps(segments, ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    result = {
+        "platform": "youtube",
+        "source_kind": "video_transcript",
+        "caption_provider": provider,
+        "source_id": video_id,
+        "source_url": youtube_url(video_id),
+        "language_requested": language,
+        "translated_to": payload.get("translated_to") or translate_to,
+        "segments": segments,
+        "evidence_windows": transcript_windows(segments),
+        "segment_count": len(segments),
+        "content_hash": digest,
+        "evidence_status": "inspect_segments_before_claim",
+    }
+    warnings = [
+        "Captions may be auto-generated and can misrecognize names, game terms, numbers, or negation.",
+        "Use timestamped segments as locators; verify consequential claims against the video context.",
+        "A transcript records what was said, not whether the statement is correct or current.",
+        "Do not reproduce a full transcript in the final answer; quote minimally and cite the video timestamp.",
+    ]
+    if translate_to:
+        warnings.append(
+            "Provider translation was requested and may consume additional credits; retain the original-language evidence when available."
+        )
+    warnings.extend(extra_warnings or [])
+    return envelope(
+        provider,
+        operation,
+        {
+            "video_id": video_id,
+            "language": language,
+            "translate_to": translate_to,
+        },
+        [result],
+        warnings=warnings,
+    )
+
+
+PublicCaptionFetcher = Callable[
+    [str, list[str] | None], tuple[list[dict[str, Any]], dict[str, Any]]
+]
+
+
+def _youtube_transcript_api_fetch(
+    video_id: str, languages: list[str] | None
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Read a public caption track through the optional youtube-transcript-api."""
+
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+    except ImportError as exc:  # pragma: no cover - exercised through doctor/tests
+        raise ProviderError(
+            "youtube_public_captions",
+            "Optional dependency is unavailable. Run with `uv run --with youtube-transcript-api` or install youtube-transcript-api locally.",
+        ) from exc
+    try:
+        transcript = YouTubeTranscriptApi().fetch(video_id, languages=languages)
+        rows = transcript.to_raw_data()
+    except Exception as exc:  # library exceptions vary by release
+        raise ProviderError(
+            "youtube_public_captions",
+            "Public YouTube captions are unavailable for this video.",
+        ) from exc
+    metadata = {
+        "language_code": getattr(transcript, "language_code", None),
+        "language": getattr(transcript, "language", None),
+        "is_generated": getattr(transcript, "is_generated", None),
+    }
+    return rows if isinstance(rows, list) else [], metadata
+
+
+def public_youtube_transcript(
+    video_id: str,
+    *,
+    language: str | None = None,
+    fetcher: PublicCaptionFetcher = _youtube_transcript_api_fetch,
+) -> dict[str, Any]:
+    """Explicit reserve path for public captions when TranscriptAPI is unavailable."""
+
+    languages = [language] if language else None
+    try:
+        rows, metadata = fetcher(video_id, languages)
+    except ProviderError:
+        raise
+    except Exception as exc:
+        raise ProviderError(
+            "youtube_public_captions",
+            "Public YouTube caption retrieval failed.",
+        ) from exc
+    payload = {"transcript": rows}
+    normalized = normalize_youtube_transcript(
+        payload,
+        video_id,
+        language=language,
+        provider="youtube_public_captions",
+        operation="youtube_public_transcript",
+        extra_warnings=[
+            "This is an explicit reserve route, not a hidden replacement for TranscriptAPI; record the primary-provider gap.",
+            "Public caption access is unofficial and can stop working or be blocked independently of the YouTube page.",
+        ],
+    )
+    if normalized["results"]:
+        normalized["results"][0]["caption_track"] = metadata
+        normalized["results"][0]["fallback_role"] = "explicit_reserve"
+    normalized["query_context"]["fallback_role"] = "explicit_reserve"
+    return normalized
+
+
 def default_cache_dir() -> Path:
     configured = os.environ.get("DEEP_RESEARCH_CACHE_DIR", "").strip()
     if configured:
@@ -581,6 +1000,22 @@ def doctor() -> dict[str, Any]:
             "credential_env": GETX_KEY_ENV,
             "configured": bool(os.environ.get(GETX_KEY_ENV, "").strip()),
         },
+        "transcriptapi": {
+            "role": "optional_youtube_search_and_transcript",
+            "credential_env": TRANSCRIPTAPI_KEY_ENV,
+            "configured": bool(
+                os.environ.get(TRANSCRIPTAPI_KEY_ENV, "").strip()
+            ),
+            "search_limit_per_call": 50,
+            "bounded_attempts": 2,
+            "translation_default": "disabled",
+        },
+        "youtube_public_captions": {
+            "role": "explicit_reserve_transcript_route",
+            "optional_dependency": "youtube-transcript-api",
+            "available": importlib.util.find_spec("youtube_transcript_api") is not None,
+            "credential_required": False,
+        },
         "tinyfish": {
             "role": "optional_discovery_and_fetch",
             "cli_available": shutil.which("tinyfish") is not None,
@@ -595,6 +1030,13 @@ def positive_limit(value: str) -> int:
     number = int(value)
     if not 1 <= number <= 100:
         raise argparse.ArgumentTypeError("limit must be between 1 and 100")
+    return number
+
+
+def youtube_limit(value: str) -> int:
+    number = int(value)
+    if not 1 <= number <= 50:
+        raise argparse.ArgumentTypeError("YouTube search limit must be between 1 and 50")
     return number
 
 
@@ -644,6 +1086,42 @@ def build_parser() -> argparse.ArgumentParser:
     x_search.add_argument("--query", required=True)
     x_search.add_argument("--product", choices=("Latest", "Top"), default="Latest")
     x_search.add_argument("--cursor")
+
+    youtube_search = subparsers.add_parser(
+        "youtube-search", help="Search public YouTube videos through TranscriptAPI."
+    )
+    youtube_search.add_argument("--query", required=True)
+    youtube_search.add_argument("--limit", type=youtube_limit, default=20)
+
+    youtube_channel_search = subparsers.add_parser(
+        "youtube-channel-search",
+        help="Search videos inside an independently verified YouTube channel.",
+    )
+    youtube_channel_search.add_argument("--channel-id", required=True)
+    youtube_channel_search.add_argument("--query", required=True)
+    youtube_channel_search.add_argument("--limit", type=youtube_limit, default=20)
+
+    youtube_transcript = subparsers.add_parser(
+        "youtube-transcript",
+        help="Fetch a timestamped transcript for one public YouTube video.",
+    )
+    youtube_transcript.add_argument(
+        "--video", required=True, help="YouTube URL or 11-character video id."
+    )
+    youtube_transcript.add_argument("--language")
+    youtube_transcript.add_argument(
+        "--translate-to",
+        help="Optional provider translation; this can consume additional credits.",
+    )
+
+    youtube_public_transcript = subparsers.add_parser(
+        "youtube-public-transcript",
+        help="Use the explicit public-caption reserve route without TranscriptAPI.",
+    )
+    youtube_public_transcript.add_argument(
+        "--video", required=True, help="YouTube URL or 11-character video id."
+    )
+    youtube_public_transcript.add_argument("--language")
 
     tinyfish_search = subparsers.add_parser(
         "tinyfish-search", help="Search the web through the installed TinyFish CLI."
@@ -732,6 +1210,45 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             GETX_KEY_ENV,
         )
         return normalize_x_search(payload, args.query, args.product, args.cursor)
+    if args.command == "youtube-search":
+        payload = transcriptapi_get_json(
+            "/search", {"q": args.query, "limit": args.limit}
+        )
+        return normalize_youtube_search(payload, args.query, args.limit)
+    if args.command == "youtube-channel-search":
+        payload = transcriptapi_get_json(
+            "/channel/search",
+            {
+                "channel_id": args.channel_id,
+                "q": args.query,
+                "limit": args.limit,
+            },
+        )
+        return normalize_youtube_search(
+            payload,
+            args.query,
+            args.limit,
+            channel_id=args.channel_id,
+        )
+    if args.command == "youtube-transcript":
+        video_id = youtube_video_id(args.video)
+        payload = transcriptapi_get_json(
+            "/transcript",
+            {
+                "video_id": video_id,
+                "language": args.language,
+                "translate_to": args.translate_to,
+            },
+        )
+        return normalize_youtube_transcript(
+            payload,
+            video_id,
+            language=args.language,
+            translate_to=args.translate_to,
+        )
+    if args.command == "youtube-public-transcript":
+        video_id = youtube_video_id(args.video)
+        return public_youtube_transcript(video_id, language=args.language)
     if args.command == "tinyfish-search":
         reserve_rate_capacity("tinyfish-search", 1, TINYFISH_SEARCH_LIMIT)
         command = ["search", "query", args.query]

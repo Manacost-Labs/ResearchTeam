@@ -8,7 +8,7 @@ Turn an open-ended question into an auditable chain of sources, evidence, claims
 
 [![Release](https://img.shields.io/badge/release-1.0.0-0A7B83)](deep-research/CHANGELOG.md)
 [![Benchmark](https://img.shields.io/badge/benchmark-22%2F22-success)](evaluation/benchmark/README.md)
-[![Tests](https://img.shields.io/badge/source%20tests-42%20passing-success)](deep-research/tests)
+[![Tests](https://img.shields.io/badge/source%20tests-60%20passing-success)](deep-research/tests)
 [![Semantic Gold](https://img.shields.io/badge/semantic%20gold-100%25-success)](evaluation/gold/semantic-cases.jsonl)
 [![License](https://img.shields.io/badge/license-proprietary-lightgrey)](LICENSE)
 
@@ -27,7 +27,7 @@ Most research failures happen before writing: the question is underspecified, se
 
 ResearchTeam makes those failure modes explicit and testable. It plans first, collects evidence by claim type, validates provenance and freshness, searches for disconfirming evidence, and permits a strong conclusion only after the quality gate passes.
 
-> **Release boundary:** `deep-research-1.0.0.zip` is the verified stable package. The repository source also contains unreleased read-only adapters for RedditAPI, GetXAPI, TinyFish, and Chinese Hearthstone intelligence. They are not silently included in the 1.0.0 archive.
+> **Release boundary:** `deep-research-1.0.0.zip` is the verified stable package. The repository source also contains unreleased read-only adapters for RedditAPI, GetXAPI, TranscriptAPI, TinyFish, and Chinese Hearthstone intelligence. They are not silently included in the 1.0.0 archive.
 
 ## Core guarantees
 
@@ -68,6 +68,7 @@ The built-in **ChatGPT Search/Web** capability remains the default discovery and
 | ChatGPT Search/Web | Default web discovery and source inspection | Included in 1.0.0 |
 | RedditAPI | Subreddit listings, search, posts, and comment context | Unreleased source adapter |
 | GetXAPI | Direct X posts, dates, authors, and visible engagement | Unreleased source adapter |
+| TranscriptAPI | YouTube search, verified-channel discovery, and timestamped transcripts | Unreleased source adapter |
 | TinyFish | General web search and clean page extraction | Unreleased source adapter |
 | Scrape.do + Chinese profiles | Repeatable IYingdi, TapTap, NGA, Bilibili, GamerSky, and 17173 ingestion | Unreleased source adapter |
 | Koloda Hearthstone API | DBF validation and RU/EN card metadata | Unreleased source adapter |
@@ -149,12 +150,25 @@ python3 deep-research/scripts/community_sources.py x-search \
 # General web discovery through TinyFish
 python3 deep-research/scripts/community_sources.py tinyfish-search \
   --query "Hearthstone current patch analysis"
+
+# YouTube discovery and a timestamped transcript
+python3 deep-research/scripts/community_sources.py youtube-search \
+  --query "Hearthstone current patch high legend guide" --limit 20
+python3 deep-research/scripts/community_sources.py youtube-transcript \
+  --video 'https://www.youtube.com/watch?v=VIDEO_ID' --language en
+
+# Reserve path when TranscriptAPI is unavailable
+uv run --with youtube-transcript-api \
+  deep-research/scripts/community_sources.py youtube-public-transcript \
+  --video 'https://www.youtube.com/watch?v=VIDEO_ID' --language en
 ```
 
 Credential boundary:
 
 - RedditAPI reads `REDDITAPIS_KEY` from the local environment.
 - GetXAPI reads `GETXAPI_KEY` from the local environment.
+- TranscriptAPI reads `TRANSCRIPTAPI_TOKEN` from the local environment.
+- Public YouTube captions require no credential and are always labeled as an explicit reserve source.
 - TinyFish uses credentials managed by its own CLI.
 - Keys must never appear in command arguments, URLs, repository files, bundles, snapshots, logs, or output.
 - The adapter exposes no login, posting, voting, commenting, direct-message, cookie, or account-modification operation.

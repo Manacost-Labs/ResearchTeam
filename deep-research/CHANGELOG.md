@@ -9,6 +9,8 @@
 - Added CN statistics, terminology, provenance, origin/repost classification, earliest-observed scope, GuideHunter queries, structured guide evidence, Bilibili timestamp normalization, scoring, health, and metrics contracts.
 - Added offline Chinese HTML/JSON fixtures and regression coverage for multi-deck compilations, CAPTCHA/SPA/status failures, secret safety, lineage, classifiers, and card API normalization.
 - Added optional read-only RedditAPI, GetXAPI, and TinyFish adapters with normalized JSON output and no stored credentials.
+- Added TranscriptAPI YouTube discovery/transcript support and an explicitly labeled credential-free public-caption reserve route using the optional `youtube-transcript-api` package.
+- Recorded live YouTube validation findings: transcript UI blocks do not prove captions are absent, automatic captions require domain-term verification, and upload date does not prove gameplay patch freshness.
 - Added fail-fast local TinyFish limits for 30 searches and 150 fetched URLs per rolling minute.
 - Added provider routing, platform-separation, cost/rate, incomplete-coverage, and third-party provenance rules.
 - Documented the Google Research assessment: adopt AIS-style attribution methodology, but do not add BLEURT or ScaNN runtime dependencies without a measured need.

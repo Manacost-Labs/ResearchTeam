@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -161,6 +162,195 @@ class CommunitySourcesTest(unittest.TestCase):
         result = community_sources.normalize_tinyfish_fetch(payload, ["https://example.com"])
         self.assertEqual(result["results"][0]["content"], "First\nSecond")
 
+    def test_youtube_search_normalizes_metrics_without_inventing_expertise(self) -> None:
+        payload = {
+            "query": "hearthstone pro guide",
+            "results": [
+                {
+                    "id": "dQw4w9WgXcQ",
+                    "title": "Current patch guide",
+                    "channel": "Example Pro",
+                    "views": "2.7K views",
+                    "duration": "1:02:03",
+                }
+            ],
+        }
+        result = community_sources.normalize_youtube_search(
+            payload, "hearthstone pro guide", 20
+        )
+        item = result["results"][0]
+        self.assertEqual(item["metrics"]["views"], 2700)
+        self.assertEqual(item["metrics"]["duration_seconds"], 3723)
+        self.assertEqual(item["expertise"]["status"], "unverified")
+        self.assertEqual(item["evidence_status"], "discovery_only")
+        scoped = community_sources.normalize_youtube_search(
+            payload,
+            "hearthstone pro guide",
+            20,
+            channel_id="@verified-player",
+        )
+        self.assertEqual(
+            scoped["results"][0]["expertise"]["status"],
+            "channel_scoped_unverified",
+        )
+
+    def test_youtube_video_id_accepts_common_urls_and_rejects_other_hosts(self) -> None:
+        expected = "dQw4w9WgXcQ"
+        values = (
+            expected,
+            f"https://www.youtube.com/watch?v={expected}&t=10s",
+            f"https://youtu.be/{expected}",
+            f"https://www.youtube.com/shorts/{expected}",
+            f"https://www.youtube.com/embed/{expected}",
+        )
+        self.assertEqual(
+            [community_sources.youtube_video_id(value) for value in values],
+            [expected] * len(values),
+        )
+        with self.assertRaises(community_sources.ProviderError):
+            community_sources.youtube_video_id(
+                f"https://example.com/watch?v={expected}"
+            )
+
+    def test_youtube_transcript_preserves_timestamped_segments_and_windows(self) -> None:
+        payload = {
+            "video_id": "dQw4w9WgXcQ",
+            "transcript": [
+                {"start": 0.0, "duration": 4.0, "text": "Opening"},
+                {"start": 7.0, "duration": 5.0, "text": "Mulligan advice"},
+                {"start": 33.0, "duration": 4.0, "text": "Matchup advice"},
+            ],
+        }
+        result = community_sources.normalize_youtube_transcript(
+            payload, "dQw4w9WgXcQ", language="en"
+        )
+        item = result["results"][0]
+        self.assertEqual(item["segment_count"], 3)
+        self.assertEqual(len(item["evidence_windows"]), 2)
+        self.assertIn("t=7s", item["segments"][1]["timestamp_url"])
+        self.assertEqual(len(item["content_hash"]), 64)
+        self.assertEqual(item["evidence_status"], "inspect_segments_before_claim")
+
+    def test_transcriptapi_retries_one_transient_failure_without_leaking_key(
+        self,
+    ) -> None:
+        requests = []
+        sleeps = []
+
+        def transport(request, timeout):
+            requests.append(request)
+            if len(requests) == 1:
+                return (
+                    503,
+                    {},
+                    json.dumps(
+                        {
+                            "detail": "temporary",
+                            "retryable": True,
+                            "credits_refunded": True,
+                        }
+                    ).encode(),
+                )
+            return (
+                200,
+                {},
+                json.dumps(
+                    {"video_id": "dQw4w9WgXcQ", "transcript": []}
+                ).encode(),
+            )
+
+        with patch.dict(
+            os.environ,
+            {community_sources.TRANSCRIPTAPI_KEY_ENV: "fixture-transcript-secret"},
+            clear=False,
+        ):
+            payload = community_sources.transcriptapi_get_json(
+                "/transcript",
+                {"video_id": "dQw4w9WgXcQ"},
+                transport=transport,
+                sleep=sleeps.append,
+            )
+
+        query = parse_qs(urlsplit(requests[0].full_url).query)
+        headers = dict(requests[0].header_items())
+        self.assertEqual(query["video_id"], ["dQw4w9WgXcQ"])
+        self.assertEqual(headers["Authorization"], "Bearer fixture-transcript-secret")
+        self.assertNotIn("fixture-transcript-secret", requests[0].full_url)
+        self.assertNotIn("fixture-transcript-secret", json.dumps(payload))
+        self.assertEqual(len(requests), 2)
+        self.assertEqual(sleeps, [1.5])
+
+    def test_transcriptapi_does_not_retry_permanent_video_error(self) -> None:
+        calls = 0
+
+        def transport(request, timeout):
+            nonlocal calls
+            calls += 1
+            return (
+                404,
+                {},
+                json.dumps(
+                    {
+                        "error": "TranscriptsDisabled",
+                        "retryable": False,
+                        "credits_refunded": True,
+                    }
+                ).encode(),
+            )
+
+        with patch.dict(
+            os.environ,
+            {community_sources.TRANSCRIPTAPI_KEY_ENV: "fixture-transcript-secret"},
+            clear=False,
+        ):
+            with self.assertRaises(community_sources.ProviderError) as raised:
+                community_sources.transcriptapi_get_json(
+                    "/transcript",
+                    {"video_id": "dQw4w9WgXcQ"},
+                    transport=transport,
+                )
+        self.assertEqual(calls, 1)
+        self.assertEqual(raised.exception.provider_code, "TranscriptsDisabled")
+        self.assertFalse(raised.exception.retryable)
+        self.assertTrue(raised.exception.credits_refunded)
+
+    def test_public_youtube_transcript_is_explicit_and_preserves_track_metadata(
+        self,
+    ) -> None:
+        def fetcher(video_id, languages):
+            self.assertEqual(video_id, "dQw4w9WgXcQ")
+            self.assertEqual(languages, ["en"])
+            return (
+                [{"start": 4.0, "duration": 3.5, "text": "Public caption"}],
+                {
+                    "language_code": "en",
+                    "language": "English (auto-generated)",
+                    "is_generated": True,
+                },
+            )
+
+        result = community_sources.public_youtube_transcript(
+            "dQw4w9WgXcQ", language="en", fetcher=fetcher
+        )
+        item = result["results"][0]
+        self.assertEqual(result["provider"], "youtube_public_captions")
+        self.assertEqual(result["operation"], "youtube_public_transcript")
+        self.assertEqual(result["query_context"]["fallback_role"], "explicit_reserve")
+        self.assertEqual(item["caption_provider"], "youtube_public_captions")
+        self.assertTrue(item["caption_track"]["is_generated"])
+        self.assertTrue(any("not a hidden" in warning for warning in result["warnings"]))
+
+    def test_public_youtube_transcript_redacts_library_failure(self) -> None:
+        def fetcher(video_id, languages):
+            raise RuntimeError("sensitive upstream details")
+
+        with self.assertRaises(community_sources.ProviderError) as raised:
+            community_sources.public_youtube_transcript(
+                "dQw4w9WgXcQ", fetcher=fetcher
+            )
+        self.assertEqual(raised.exception.provider, "youtube_public_captions")
+        self.assertNotIn("sensitive", str(raised.exception))
+
     def test_local_tinyfish_rate_limiter_is_fail_fast(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             cache_dir = Path(temp)
@@ -180,6 +370,7 @@ class CommunitySourcesTest(unittest.TestCase):
             {
                 community_sources.REDDIT_KEY_ENV: "test-reddit-secret",
                 community_sources.GETX_KEY_ENV: "test-x-secret",
+                community_sources.TRANSCRIPTAPI_KEY_ENV: "test-transcript-secret",
             },
             clear=False,
         ):
@@ -187,8 +378,14 @@ class CommunitySourcesTest(unittest.TestCase):
         rendered = json.dumps(result)
         self.assertTrue(result["redditapi"]["configured"])
         self.assertTrue(result["getxapi"]["configured"])
+        self.assertTrue(result["transcriptapi"]["configured"])
+        self.assertEqual(
+            result["youtube_public_captions"]["optional_dependency"],
+            "youtube-transcript-api",
+        )
         self.assertNotIn("test-reddit-secret", rendered)
         self.assertNotIn("test-x-secret", rendered)
+        self.assertNotIn("test-transcript-secret", rendered)
 
 
 if __name__ == "__main__":

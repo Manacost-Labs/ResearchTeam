@@ -18,7 +18,7 @@ For every material community item, record:
 - supporting examples and counterarguments;
 - engagement only as context, never as proof of truth or prevalence.
 
-Use built-in ChatGPT Search/Web to locate and open the actual post, thread, or video page. When available, use the read-only RedditAPI and GetXAPI routes defined in [optional source providers](source-providers.md) to obtain direct Reddit/X records, timestamps, context, and visible engagement without flattening the platforms together. For YouTube, inspect the relevant segment and record timestamps when possible. If access is partial, label it.
+Use built-in ChatGPT Search/Web to locate and open the actual post, thread, or video page. When available, use the read-only RedditAPI and GetXAPI routes defined in [optional source providers](source-providers.md) to obtain direct Reddit/X records, timestamps, context, and visible engagement without flattening the platforms together. For YouTube, optional TranscriptAPI search can discover candidates and its transcript route can provide stable segment timestamps. If it is unavailable, use the explicitly labeled public-caption reserve route described in the provider contract. Inspect the video page and relevant segment before relying on it; if access is partial or captions are automatic/absent, label it.
 
 Provider ranking is not community prevalence. Segment automated posts, giveaways, stickied material, crossposts, replies, and incomplete comment trees before interpreting a sample. Preserve the exact subreddit or X query, time window, sort/product, cursor, provider position, and collection time.
 
@@ -35,6 +35,10 @@ Distinguish:
 - statistical analyst or data provider.
 
 Follower count is not sufficient expertise. Prefer current demonstrated performance, attributable professional role, methodological transparency, reproducible work, and topic-specific track record. A developer may be authoritative on mechanics but not necessarily optimal strategy; a top player may be authoritative on high-rank practice but not population-wide prevalence.
+
+For YouTube, verify the player or coach independently before treating a channel as professional. A current tournament roster, official team/profile page, leaderboard identity, or linked verified account is stronger than a title containing “pro,” a large view count, or self-description. Record whether the video is a guide, tournament/VOD, coaching review, entertainment compilation, sponsored promotion, or reaction; these formats have different evidentiary weight.
+
+Treat upload freshness and gameplay freshness as separate fields. A recent commentary upload may analyze an older match, pre-patch tournament, or replay. Verify the patch from the spoken context, visible client state, description, or an attributable recording date; otherwise lower freshness confidence.
 
 ## Synthesis categories
 
