@@ -51,6 +51,41 @@ class SourceGatewayCommandTest(unittest.TestCase):
             ],
         )
 
+    def test_named_dataset_route_accepts_only_plain_source_ids(self) -> None:
+        argv = source_gateway.command_argv(
+            {
+                "command": "stats-api",
+                "options": {
+                    "operation": "dataset",
+                    "source_id": "metastats_matchups",
+                },
+            }
+        )
+        self.assertEqual(
+            argv,
+            [
+                "stats-api",
+                "--operation",
+                "dataset",
+                "--source-id",
+                "metastats_matchups",
+                "--limit",
+                "50",
+                "--offset",
+                "0",
+            ],
+        )
+        with self.assertRaisesRegex(ValueError, "source_id"):
+            source_gateway.command_argv(
+                {
+                    "command": "stats-api",
+                    "options": {
+                        "operation": "dataset",
+                        "source_id": "../../admin",
+                    },
+                }
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -116,6 +116,17 @@ def command_argv(body: dict[str, Any]) -> list[str]:
         if not operation:
             raise ValueError("operation is required")
         argv = ["stats-api", "--operation", str(operation)]
+        if operation == "dataset":
+            source_id = option_value(options, "source_id", "")
+            allowed_characters = "abcdefghijklmnopqrstuvwxyz0123456789_-"
+            if (
+                not isinstance(source_id, str)
+                or not source_id
+                or len(source_id) > 128
+                or any(character not in allowed_characters for character in source_id)
+                or source_id[0] not in "abcdefghijklmnopqrstuvwxyz0123456789"
+            ):
+                raise ValueError("dataset source_id is invalid")
         for name in (
             "q",
             "class_name",

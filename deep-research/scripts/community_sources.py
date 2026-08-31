@@ -49,12 +49,18 @@ STATS_API_BASE_URL = os.environ.get(
     "HEARTHSTONE_STATS_API_URL",
     "https://api.kolodahearthstone.com/v1",
 ).strip().rstrip("/")
+STATS_API_DATASET_BASE_URL = (
+    STATS_API_BASE_URL.removesuffix("/v1")
+    if STATS_API_BASE_URL.endswith("/v1")
+    else STATS_API_BASE_URL
+)
 STATS_API_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 STATS_API_TIMEOUT_SECONDS = 20.0
 STATS_API_PATHS = {
     "health": "/health",
     "sources": "/sources",
     "datasets": "/datasets",
+    "dataset": "/datasets/{source_id}",
     "constructed-decks": "/constructed/decks",
     "constructed-archetypes": "/constructed/archetypes",
     "hsguru-meta": "/hsguru/meta",
@@ -63,6 +69,7 @@ STATS_API_PATHS = {
     "arena-classes": "/arena/classes",
     "parsing-reliability": "/system/parsing-reliability",
 }
+STATS_API_SOURCE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,127}$")
 RATE_WINDOW_SECONDS = 60
 MAX_PROVIDER_RESPONSE_BYTES = 10_000_000
 
@@ -323,6 +330,8 @@ def stats_api_query_params(operation: str, params: dict[str, Any]) -> dict[str, 
     clean_params = {
         key: value for key, value in params.items() if value not in (None, "")
     }
+    if operation == "dataset":
+        return {}
     if operation != "hsguru-meta":
         return clean_params
 
@@ -1022,14 +1031,29 @@ def tinyfish_fetch(urls: list[str]) -> dict[str, Any]:
     )
 
 
-def stats_api_request(operation: str, params: dict[str, Any]) -> dict[str, Any]:
-    """Read one allowlisted, public v1 statistics endpoint with GET only."""
+def stats_api_endpoint(operation: str, params: dict[str, Any]) -> tuple[str, str]:
+    """Resolve one fixed public statistics route without accepting arbitrary URLs."""
 
     path = STATS_API_PATHS.get(operation)
     if path is None:
         raise ProviderError("koloda_stats_api", "Unsupported statistics operation.")
+    if operation == "dataset":
+        source_id = str(params.get("source_id") or "")
+        if not STATS_API_SOURCE_ID_RE.fullmatch(source_id):
+            raise ProviderError(
+                "koloda_stats_api",
+                "Dataset source_id must contain only lowercase letters, digits, underscores or hyphens.",
+            )
+        path = f"/datasets/{source_id}"
+        return f"{STATS_API_DATASET_BASE_URL}{path}", path
+    return f"{STATS_API_BASE_URL}{path}", path
+
+
+def stats_api_request(operation: str, params: dict[str, Any]) -> dict[str, Any]:
+    """Read one allowlisted, public statistics endpoint with GET only."""
+
+    url, _path = stats_api_endpoint(operation, params)
     clean_params = stats_api_query_params(operation, params)
-    url = f"{STATS_API_BASE_URL}{path}"
     if clean_params:
         url = f"{url}?{urlencode(clean_params)}"
     request = Request(
@@ -1069,10 +1093,25 @@ def normalize_stats_api(
     operation: str,
     params: dict[str, Any],
 ) -> dict[str, Any]:
-    path = STATS_API_PATHS[operation]
+    source_url, path = stats_api_endpoint(operation, params)
     query_params = stats_api_query_params(operation, params)
     query = urlencode(query_params)
-    source_url = f"{STATS_API_BASE_URL}{path}{f'?{query}' if query else ''}"
+    if query:
+        source_url = f"{source_url}?{query}"
+    api_meta = payload.get("meta")
+    result_data = payload.get("data", payload)
+    if operation == "dataset":
+        api_meta = {
+            key: payload.get(key)
+            for key in (
+                "source_id",
+                "fetched_at",
+                "publication",
+                "backend",
+                "transport_backend",
+            )
+            if payload.get(key) is not None
+        }
     return envelope(
         "koloda_stats_api",
         operation,
@@ -1083,8 +1122,8 @@ def normalize_stats_api(
                 "source_kind": "statistics_api",
                 "source_url": source_url,
                 "title": f"Koloda Hearthstone statistics: {operation}",
-                "data": payload.get("data", payload),
-                "api_meta": payload.get("meta"),
+                "data": result_data,
+                "api_meta": api_meta,
                 "evidence_status": "first_party_cached_dataset",
             }
         ],

@@ -57,16 +57,21 @@ python3 scripts/community_sources.py tinyfish-search \
 python3 scripts/community_sources.py tinyfish-fetch --url https://example.com/source
 python3 scripts/community_sources.py stats-api \
   --operation constructed-archetypes --limit 50
+python3 scripts/community_sources.py stats-api \
+  --operation dataset --source-id metastats_matchups
 ```
 
 RedditAPI reads `REDDITAPIS_KEY`; GetXAPI reads `GETXAPI_KEY`; TranscriptAPI reads `TRANSCRIPTAPI_TOKEN`. Configure these only in the local environment or a secret manager. TinyFish uses `TINYFISH_API_KEY` for its REST Search/Fetch fallback and can use its CLI when installed. Chinese ingestion reads `SCRAPE_DO_API_TOKEN` and optionally `KHS_API_TOKEN`. Never place keys in a command argument, target URL, repository file, research bundle, snapshot, output, or error report; provider-required authentication must remain inside a redacted transport boundary.
 
 The `doctor` command emits only presence booleans and tool availability, never credential values.
 
-`stats-api` is deliberately limited to an allowlist of public `GET /v1/*` endpoints and never accepts
-write operations, arbitrary URLs, or credentials. Supported operations include health, sources,
-datasets, constructed decks/archetypes, Battlegrounds heroes/minions, Arena classes, and parsing
-reliability.
+`stats-api` is deliberately limited to an allowlist of public `GET` endpoints and never accepts write
+operations, arbitrary URLs, or credentials. Supported operations include health, sources, dataset
+inventory, one named stored dataset, constructed decks/archetypes, Battlegrounds heroes/minions,
+Arena classes, and parsing reliability. Query `api.kolodahearthstone.com` before scraping public
+HSReplay, HSGuru, or MetaStats pages: those datasets are already cached there. The named `dataset`
+operation accepts only a validated source id; current MetaStats ids include `metastats_decks` and
+`metastats_matchups`.
 
 ## Provider rules
 

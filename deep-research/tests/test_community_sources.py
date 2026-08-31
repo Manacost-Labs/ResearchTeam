@@ -494,6 +494,50 @@ class CommunitySourcesTest(unittest.TestCase):
         )
         self.assertEqual(result["results"][0]["api_meta"]["source_id"], "hsguru_meta_matrix")
 
+    def test_reads_one_named_metastats_dataset_without_accepting_a_url(self) -> None:
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit=None):
+                return b'{"source_id":"metastats_decks","fetched_at":"2026-08-31T16:00:24Z","publication":{"state":"published"},"data":{"tables":[]}}'
+
+        arguments = community_sources.build_parser().parse_args(
+            [
+                "stats-api",
+                "--operation",
+                "dataset",
+                "--source-id",
+                "metastats_decks",
+            ]
+        )
+        with patch.object(community_sources, "urlopen", return_value=FakeResponse()) as opened:
+            result = community_sources.execute(arguments)
+
+        request = opened.call_args.args[0]
+        self.assertEqual(request.method, "GET")
+        self.assertEqual(urlparse(request.full_url).path, "/datasets/metastats_decks")
+        self.assertEqual(urlparse(request.full_url).query, "")
+        self.assertEqual(result["results"][0]["api_meta"]["source_id"], "metastats_decks")
+        self.assertEqual(result["results"][0]["data"], {"tables": []})
+
+        invalid = community_sources.build_parser().parse_args(
+            [
+                "stats-api",
+                "--operation",
+                "dataset",
+                "--source-id",
+                "../../admin",
+            ]
+        )
+        with self.assertRaisesRegex(community_sources.ProviderError, "source_id"):
+            community_sources.execute(invalid)
+
 
 if __name__ == "__main__":
     unittest.main()
