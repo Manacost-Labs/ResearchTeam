@@ -66,6 +66,7 @@ The built-in **ChatGPT Search/Web** capability remains the default discovery and
 | Source layer | Purpose | Status |
 |---|---|---|
 | ChatGPT Search/Web | Default web discovery and source inspection | Included in 1.0.0 |
+| Koloda Hearthstone API | First-party read-only cached statistics from `/v1` | Deployment read-only adapter |
 | RedditAPI | Subreddit listings, search, posts, and comment context | Unreleased source adapter |
 | GetXAPI | Direct X posts, dates, authors, and visible engagement | Unreleased source adapter |
 | TranscriptAPI | YouTube search, verified-channel discovery, and timestamped transcripts | Unreleased source adapter |
@@ -161,6 +162,8 @@ python3 deep-research/scripts/community_sources.py youtube-transcript \
 uv run --with youtube-transcript-api \
   deep-research/scripts/community_sources.py youtube-public-transcript \
   --video 'https://www.youtube.com/watch?v=VIDEO_ID' --language en
+python3 deep-research/scripts/community_sources.py stats-api \
+  --operation constructed-archetypes --limit 50
 ```
 
 Credential boundary:
@@ -169,7 +172,8 @@ Credential boundary:
 - GetXAPI reads `GETXAPI_KEY` from the local environment.
 - TranscriptAPI reads `TRANSCRIPTAPI_TOKEN` from the local environment.
 - Public YouTube captions require no credential and are always labeled as an explicit reserve source.
-- TinyFish uses credentials managed by its own CLI.
+- TinyFish uses `TINYFISH_API_KEY` for the REST Search/Fetch fallback or credentials managed by its CLI.
+- The Koloda statistics adapter uses only an allowlisted public `GET /v1/*` surface; it cannot write to the API or call arbitrary URLs.
 - Keys must never appear in command arguments, URLs, repository files, bundles, snapshots, logs, or output.
 - The adapter exposes no login, posting, voting, commenting, direct-message, cookie, or account-modification operation.
 

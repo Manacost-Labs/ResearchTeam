@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlparse, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -371,6 +371,7 @@ class CommunitySourcesTest(unittest.TestCase):
                 community_sources.REDDIT_KEY_ENV: "test-reddit-secret",
                 community_sources.GETX_KEY_ENV: "test-x-secret",
                 community_sources.TRANSCRIPTAPI_KEY_ENV: "test-transcript-secret",
+                community_sources.TINYFISH_KEY_ENV: "test-tinyfish-secret",
             },
             clear=False,
         ):
@@ -383,9 +384,115 @@ class CommunitySourcesTest(unittest.TestCase):
             result["youtube_public_captions"]["optional_dependency"],
             "youtube-transcript-api",
         )
+        self.assertTrue(result["tinyfish"]["api_key_configured"])
         self.assertNotIn("test-reddit-secret", rendered)
         self.assertNotIn("test-x-secret", rendered)
         self.assertNotIn("test-transcript-secret", rendered)
+        self.assertNotIn("test-tinyfish-secret", rendered)
+
+    def test_tinyfish_rest_search_uses_x_api_key_without_cli(self) -> None:
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return b'{"results": [], "total_results": 0}'
+
+        with patch.dict(os.environ, {community_sources.TINYFISH_KEY_ENV: "test-tinyfish-secret"}), \
+            patch.object(community_sources.shutil, "which", return_value=None), \
+            patch.object(community_sources, "urlopen", return_value=FakeResponse()) as opened:
+            payload = community_sources.tinyfish_search("test query", 0, language="en")
+
+        request = opened.call_args.args[0]
+        self.assertEqual(request.headers["X-api-key"], "test-tinyfish-secret")
+        self.assertIn("query=test+query", request.full_url)
+        self.assertEqual(payload["total_results"], 0)
+
+    def test_stats_api_is_read_only_and_keeps_freshness_metadata(self) -> None:
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit=None):
+                return b'{"data": [{"archetype": "Example"}], "meta": {"stale": false, "fetched_at": "2026-08-30T00:00:00Z"}}'
+
+        arguments = community_sources.build_parser().parse_args(
+            [
+                "stats-api",
+                "--operation",
+                "constructed-archetypes",
+                "--q",
+                "Example",
+                "--limit",
+                "1",
+            ]
+        )
+        with patch.object(community_sources, "urlopen", return_value=FakeResponse()) as opened:
+            result = community_sources.execute(arguments)
+
+        request = opened.call_args.args[0]
+        self.assertEqual(request.method, "GET")
+        self.assertEqual(urlparse(request.full_url).path, "/v1/constructed/archetypes")
+        self.assertEqual(
+            parse_qs(urlparse(request.full_url).query),
+            {"q": ["Example"], "limit": ["1"], "offset": ["0"]},
+        )
+        self.assertEqual(result["provider"], "koloda_stats_api")
+        self.assertEqual(result["results"][0]["api_meta"]["stale"], False)
+        self.assertEqual(result["results"][0]["evidence_status"], "first_party_cached_dataset")
+
+    def test_hsguru_source_id_uses_hsguru_meta_route_and_query_aliases(self) -> None:
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit=None):
+                return b'{"data": {"items": []}, "meta": {"source_id": "hsguru_meta_matrix"}}'
+
+        arguments = community_sources.build_parser().parse_args(
+            [
+                "stats-api",
+                "--operation",
+                "hsguru-meta",
+                "--source-id",
+                "hsguru_meta_standard_legend",
+                "--period",
+                "past_day",
+                "--min-games",
+                "100",
+            ]
+        )
+        with patch.object(community_sources, "urlopen", return_value=FakeResponse()) as opened:
+            result = community_sources.execute(arguments)
+
+        request = opened.call_args.args[0]
+        self.assertEqual(request.method, "GET")
+        self.assertEqual(urlparse(request.full_url).path, "/v1/hsguru/meta")
+        self.assertEqual(
+            parse_qs(urlparse(request.full_url).query),
+            {
+                "format": ["standard"],
+                "rank": ["legend"],
+                "period": ["past_day"],
+                "min_games": ["100"],
+            },
+        )
+        self.assertEqual(result["results"][0]["api_meta"]["source_id"], "hsguru_meta_matrix")
 
 
 if __name__ == "__main__":

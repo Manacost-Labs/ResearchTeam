@@ -54,7 +54,7 @@ The default is `deep` with a balance of primary sources, statistics, expert anal
 
 Internet work uses the built-in ChatGPT Search/Web capability by default. Search results discover candidate sources; the Skill then opens the original pages and validates claim-level evidence. It never treats a snippet or an AI-generated search summary as a verified source.
 
-When locally available, `scripts/community_sources.py` adds read-only RedditAPI, GetXAPI, TranscriptAPI, and TinyFish routes. They preserve platform-specific records, pagination and coverage warnings, visible engagement, provider rank semantics, and timestamped YouTube transcript evidence in normalized JSON. Reddit, X, and YouTube remain separate evidence channels; optional-provider failure is disclosed instead of silently replaced.
+When locally available, `scripts/community_sources.py` adds read-only first-party Koloda statistics from `api.kolodahearthstone.com/v1`, RedditAPI, GetXAPI, TranscriptAPI, and TinyFish routes. They preserve API freshness metadata, platform-specific records, pagination and coverage warnings, visible engagement, provider rank semantics, and timestamped YouTube transcript evidence in normalized JSON. First-party statistics, Reddit, X, and YouTube remain separate evidence channels; provider failure is disclosed instead of silently replaced.
 
 ```text
 python3 scripts/community_sources.py doctor
@@ -67,9 +67,10 @@ python3 scripts/community_sources.py youtube-transcript --video 'https://www.you
 uv run --with youtube-transcript-api scripts/community_sources.py youtube-public-transcript --video 'https://www.youtube.com/watch?v=VIDEO_ID' --language en
 python3 scripts/community_sources.py tinyfish-search --query "Hearthstone analysis"
 python3 scripts/community_sources.py tinyfish-fetch --url https://example.com/source
+python3 scripts/community_sources.py stats-api --operation constructed-archetypes --limit 50
 ```
 
-RedditAPI reads `REDDITAPIS_KEY`, GetXAPI reads `GETXAPI_KEY`, TranscriptAPI reads `TRANSCRIPTAPI_TOKEN`, and TinyFish uses credentials managed by its own CLI. Keys are never command arguments or output. Transcript translation is disabled unless explicitly requested because it can cost additional credits. `youtube-public-transcript` is the credential-free, explicitly labeled reserve route and requires the optional `youtube-transcript-api` package; it never masquerades as TranscriptAPI output. TinyFish search is locally capped at 30 calls per rolling minute. Provider output is still untrusted discovery material until the original source is inspected and converted into Source/Evidence records.
+RedditAPI reads `REDDITAPIS_KEY`, GetXAPI reads `GETXAPI_KEY`, TranscriptAPI reads `TRANSCRIPTAPI_TOKEN`, and TinyFish reads `TINYFISH_API_KEY` for its REST Search/Fetch fallback or uses its CLI when installed. Keys are never command arguments or output. Transcript translation is disabled unless explicitly requested because it can cost additional credits. `youtube-public-transcript` is the credential-free, explicitly labeled reserve route and requires the optional `youtube-transcript-api` package; it never masquerades as TranscriptAPI output. TinyFish search is locally capped at 30 calls per rolling minute. Provider output is still untrusted discovery material until the original source is inspected and converted into Source/Evidence records; API statistics also require freshness checks.
 
 For Chinese Hearthstone sources, `scripts/chinese_hearthstone.py` provides content-aware Scrape.do escalation, a private validated cache, cross-process rate limiting, credit diagnostics, six source profiles, per-deck statistics binding, special-size deckstring assessment, source-attributed page metadata, deterministic provenance extraction, repost-lineage handling, Bilibili timestamp evidence, GuideHunter queries, and card resolution through `api.kolodahearthstone.com`.
 

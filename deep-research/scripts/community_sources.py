@@ -40,8 +40,29 @@ TRANSCRIPTAPI_BASE_URL = "https://api.transcriptapi.io"
 REDDIT_KEY_ENV = "REDDITAPIS_KEY"
 GETX_KEY_ENV = "GETXAPI_KEY"
 TRANSCRIPTAPI_KEY_ENV = "TRANSCRIPTAPI_TOKEN"
+TINYFISH_KEY_ENV = "TINYFISH_API_KEY"
+TINYFISH_SEARCH_URL = "https://api.search.tinyfish.ai"
+TINYFISH_FETCH_URL = "https://api.fetch.tinyfish.ai"
 TINYFISH_SEARCH_LIMIT = 30
 TINYFISH_FETCH_URL_LIMIT = 150
+STATS_API_BASE_URL = os.environ.get(
+    "HEARTHSTONE_STATS_API_URL",
+    "https://api.kolodahearthstone.com/v1",
+).strip().rstrip("/")
+STATS_API_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+STATS_API_TIMEOUT_SECONDS = 20.0
+STATS_API_PATHS = {
+    "health": "/health",
+    "sources": "/sources",
+    "datasets": "/datasets",
+    "constructed-decks": "/constructed/decks",
+    "constructed-archetypes": "/constructed/archetypes",
+    "hsguru-meta": "/hsguru/meta",
+    "battlegrounds-heroes": "/battlegrounds/heroes",
+    "battlegrounds-minions": "/battlegrounds/minions",
+    "arena-classes": "/arena/classes",
+    "parsing-reliability": "/system/parsing-reliability",
+}
 RATE_WINDOW_SECONDS = 60
 MAX_PROVIDER_RESPONSE_BYTES = 10_000_000
 
@@ -296,6 +317,36 @@ def transcriptapi_get_json(
             ),
         )
     raise ProviderError("transcriptapi", "Provider request failed.")
+def stats_api_query_params(operation: str, params: dict[str, Any]) -> dict[str, Any]:
+    """Translate adapter options to the exact query contract of each API route."""
+
+    clean_params = {
+        key: value for key, value in params.items() if value not in (None, "")
+    }
+    if operation != "hsguru-meta":
+        return clean_params
+
+    source_id = str(clean_params.get("source_id") or "")
+    if source_id.startswith("hsguru_meta_"):
+        source_parts = source_id.removeprefix("hsguru_meta_").split("_")
+        if len(source_parts) >= 2:
+            clean_params.setdefault("format", source_parts[0])
+            clean_params.setdefault("rank", "_".join(source_parts[1:]))
+
+    translated: dict[str, Any] = {}
+    for source_name, api_name in (
+        ("format_name", "format"),
+        ("rank_range", "rank"),
+        ("period", "period"),
+        ("min_games", "min_games"),
+    ):
+        if clean_params.get(source_name) is not None:
+            translated[api_name] = clean_params[source_name]
+    if clean_params.get("format") is not None:
+        translated["format"] = clean_params["format"]
+    if clean_params.get("rank") is not None:
+        translated["rank"] = clean_params["rank"]
+    return translated
 
 
 def reddit_flags(post: dict[str, Any]) -> list[str]:
@@ -879,6 +930,172 @@ def run_tinyfish(arguments: list[str], operation: str) -> dict[str, Any]:
     return payload
 
 
+def tinyfish_request(
+    method: str,
+    url: str,
+    *,
+    params: dict[str, Any] | None = None,
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Call TinyFish REST APIs without putting the key in an argument or URL."""
+
+    key = require_key(TINYFISH_KEY_ENV, "tinyfish")
+    if params:
+        clean_params = {key: value for key, value in params.items() if value not in (None, "")}
+        if clean_params:
+            url = f"{url}?{urlencode(clean_params)}"
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    request = Request(
+        url,
+        data=data,
+        headers={
+            "X-API-Key": key,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+        method=method,
+    )
+    try:
+        with urlopen(request, timeout=150.0) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        raise ProviderError(
+            "tinyfish",
+            f"TinyFish returned HTTP {exc.code}.",
+            status=exc.code,
+            retry_after=exc.headers.get("Retry-After"),
+        ) from exc
+    except URLError as exc:
+        raise ProviderError("tinyfish", "TinyFish request failed.") from exc
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ProviderError("tinyfish", "TinyFish returned invalid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise ProviderError("tinyfish", "TinyFish returned an unexpected response shape.")
+    return payload
+
+
+def tinyfish_search(
+    query: str,
+    page: int,
+    *,
+    location: str | None = None,
+    language: str | None = None,
+    include_domains: str | None = None,
+    exclude_domains: str | None = None,
+) -> dict[str, Any]:
+    if shutil.which("tinyfish"):
+        command = ["search", "query", query]
+        for option, value in (
+            ("--location", location),
+            ("--language", language),
+            ("--include-domains", include_domains),
+            ("--exclude-domains", exclude_domains),
+        ):
+            if value:
+                command.extend([option, value])
+        command.extend(["--page", str(page)])
+        return run_tinyfish(command, "search")
+    query_parts = [query]
+    if include_domains:
+        query_parts.extend(f"site:{domain.strip()}" for domain in include_domains.split(",") if domain.strip())
+    if exclude_domains:
+        query_parts.extend(f"-site:{domain.strip()}" for domain in exclude_domains.split(",") if domain.strip())
+    return tinyfish_request(
+        "GET",
+        TINYFISH_SEARCH_URL,
+        params={
+            "query": " ".join(query_parts),
+            "location": location,
+            "language": language,
+            "page": page,
+        },
+    )
+
+
+def tinyfish_fetch(urls: list[str]) -> dict[str, Any]:
+    if shutil.which("tinyfish"):
+        return run_tinyfish(["fetch", "content", "get", *urls, "--format", "json"], "fetch")
+    return tinyfish_request(
+        "POST",
+        TINYFISH_FETCH_URL,
+        body={"urls": urls, "format": "markdown"},
+    )
+
+
+def stats_api_request(operation: str, params: dict[str, Any]) -> dict[str, Any]:
+    """Read one allowlisted, public v1 statistics endpoint with GET only."""
+
+    path = STATS_API_PATHS.get(operation)
+    if path is None:
+        raise ProviderError("koloda_stats_api", "Unsupported statistics operation.")
+    clean_params = stats_api_query_params(operation, params)
+    url = f"{STATS_API_BASE_URL}{path}"
+    if clean_params:
+        url = f"{url}?{urlencode(clean_params)}"
+    request = Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "deep-research-koloda-stats/1.0",
+        },
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=STATS_API_TIMEOUT_SECONDS) as response:
+            raw = response.read(STATS_API_MAX_RESPONSE_BYTES + 1)
+            if len(raw) > STATS_API_MAX_RESPONSE_BYTES:
+                raise ProviderError("koloda_stats_api", "Statistics response is too large.")
+            payload = json.loads(raw.decode("utf-8"))
+    except ProviderError:
+        raise
+    except HTTPError as exc:
+        raise ProviderError(
+            "koloda_stats_api",
+            f"Statistics API returned HTTP {exc.code}.",
+            status=exc.code,
+            retry_after=exc.headers.get("Retry-After"),
+        ) from exc
+    except URLError as exc:
+        raise ProviderError("koloda_stats_api", "Statistics API request failed.") from exc
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ProviderError("koloda_stats_api", "Statistics API returned invalid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise ProviderError("koloda_stats_api", "Statistics API returned an unexpected response shape.")
+    return payload
+
+
+def normalize_stats_api(
+    payload: dict[str, Any],
+    operation: str,
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    path = STATS_API_PATHS[operation]
+    query_params = stats_api_query_params(operation, params)
+    query = urlencode(query_params)
+    source_url = f"{STATS_API_BASE_URL}{path}{f'?{query}' if query else ''}"
+    return envelope(
+        "koloda_stats_api",
+        operation,
+        {"endpoint": path, **params, **query_params},
+        [
+            {
+                "platform": "kolodahearthstone",
+                "source_kind": "statistics_api",
+                "source_url": source_url,
+                "title": f"Koloda Hearthstone statistics: {operation}",
+                "data": payload.get("data", payload),
+                "api_meta": payload.get("meta"),
+                "evidence_status": "first_party_cached_dataset",
+            }
+        ],
+        warnings=[
+            "This is a read-only snapshot from the first-party Koloda Hearthstone API.",
+            "Check api_meta.fetched_at and api_meta.stale before making freshness claims.",
+            "Statistics describe the published dataset and do not by themselves explain causation.",
+        ],
+    )
+
+
 def normalize_tinyfish_search(
     payload: dict[str, Any],
     query: str,
@@ -1019,9 +1236,17 @@ def doctor() -> dict[str, Any]:
         "tinyfish": {
             "role": "optional_discovery_and_fetch",
             "cli_available": shutil.which("tinyfish") is not None,
-            "credential_management": "tinyfish_cli",
+            "api_key_configured": bool(os.environ.get(TINYFISH_KEY_ENV, "").strip()),
+            "credential_management": "environment_or_tinyfish_cli",
             "search_limit_per_minute": TINYFISH_SEARCH_LIMIT,
             "fetch_url_limit_per_minute": TINYFISH_FETCH_URL_LIMIT,
+        },
+        "koloda_stats_api": {
+            "role": "first_party_read_only_statistics",
+            "base_url": STATS_API_BASE_URL,
+            "configured": bool(STATS_API_BASE_URL),
+            "operations": sorted(STATS_API_PATHS),
+            "authentication": "public_read_only_endpoints",
         },
     }
 
@@ -1137,6 +1362,25 @@ def build_parser() -> argparse.ArgumentParser:
         "tinyfish-fetch", help="Fetch clean page content through the installed TinyFish CLI."
     )
     tinyfish_fetch.add_argument("--url", action="append", required=True, dest="urls")
+
+    stats_api = subparsers.add_parser(
+        "stats-api",
+        help="Read an allowlisted first-party Koloda Hearthstone v1 statistics endpoint.",
+    )
+    stats_api.add_argument("--operation", choices=tuple(STATS_API_PATHS), required=True)
+    stats_api.add_argument("--q")
+    stats_api.add_argument("--class-name")
+    stats_api.add_argument("--format-name")
+    stats_api.add_argument("--source-id")
+    stats_api.add_argument("--min-win-rate", type=float)
+    stats_api.add_argument("--rank-range")
+    stats_api.add_argument("--period")
+    stats_api.add_argument("--min-games", type=int)
+    stats_api.add_argument("--game-type")
+    stats_api.add_argument("--mode", choices=("solo", "duos"))
+    stats_api.add_argument("--tavern-tier", type=int)
+    stats_api.add_argument("--limit", type=positive_limit, default=50)
+    stats_api.add_argument("--offset", type=int, default=0)
     return parser
 
 
@@ -1251,17 +1495,14 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         return public_youtube_transcript(video_id, language=args.language)
     if args.command == "tinyfish-search":
         reserve_rate_capacity("tinyfish-search", 1, TINYFISH_SEARCH_LIMIT)
-        command = ["search", "query", args.query]
-        for option, value in (
-            ("--location", args.location),
-            ("--language", args.language),
-            ("--include-domains", args.include_domains),
-            ("--exclude-domains", args.exclude_domains),
-        ):
-            if value:
-                command.extend([option, value])
-        command.extend(["--page", str(args.page)])
-        payload = run_tinyfish(command, "search")
+        payload = tinyfish_search(
+            args.query,
+            args.page,
+            location=args.location,
+            language=args.language,
+            include_domains=args.include_domains,
+            exclude_domains=args.exclude_domains,
+        )
         return normalize_tinyfish_search(
             payload,
             args.query,
@@ -1275,10 +1516,37 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         reserve_rate_capacity(
             "tinyfish-fetch", len(args.urls), TINYFISH_FETCH_URL_LIMIT
         )
-        payload = run_tinyfish(
-            ["fetch", "content", "get", *args.urls, "--format", "json"], "fetch"
-        )
+        payload = tinyfish_fetch(args.urls)
         return normalize_tinyfish_fetch(payload, args.urls)
+    if args.command == "stats-api":
+        if not 0 <= args.offset <= 10_000:
+            raise ProviderError("koloda_stats_api", "Statistics offset must be between 0 and 10000.")
+        if args.tavern_tier is not None and not 1 <= args.tavern_tier <= 7:
+            raise ProviderError("koloda_stats_api", "Battlegrounds tavern tier must be between 1 and 7.")
+        params: dict[str, Any] = {"limit": args.limit, "offset": args.offset}
+        for name in (
+            "q",
+            "class_name",
+            "format_name",
+            "source_id",
+            "min_win_rate",
+            "rank_range",
+            "period",
+            "min_games",
+            "game_type",
+            "mode",
+            "tavern_tier",
+        ):
+            value = getattr(args, name)
+            if value is not None:
+                params[name] = value
+        if args.operation in {"health", "sources", "datasets", "parsing-reliability"}:
+            params = {}
+        return normalize_stats_api(
+            stats_api_request(args.operation, params),
+            args.operation,
+            params,
+        )
     raise ProviderError("adapter", "Unknown command.")
 
 

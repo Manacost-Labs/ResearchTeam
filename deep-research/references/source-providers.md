@@ -2,7 +2,7 @@
 
 ## Boundary
 
-Built-in ChatGPT Search/Web remains the default discovery and source-opening layer. RedditAPI, GetXAPI, TranscriptAPI, TinyFish, and the Chinese Hearthstone Scrape.do adapter are optional specialist routes for access gaps; they do not replace evidence validation, source inspection, contradiction search, or the built-in capability.
+Built-in ChatGPT Search/Web remains the default discovery and source-opening layer. The first-party Koloda Hearthstone API adds read-only cached statistics; RedditAPI, GetXAPI, TranscriptAPI, TinyFish, and the Chinese Hearthstone Scrape.do adapter are optional specialist routes for access gaps. None of these routes replaces evidence validation, source inspection, contradiction search, or the built-in capability.
 
 All adapters are read-only. This package intentionally exposes no login, cookie, vote, comment, direct-message, publishing, or account-modification operation, even when a provider offers one.
 
@@ -15,6 +15,7 @@ All adapters are read-only. This package intentionally exposes no login, cookie,
 | Direct X posts, dates, authors, and visible engagement | GetXAPI | ChatGPT Search/Web; label mirrors, indexing gaps, and inaccessible direct posts |
 | YouTube guides, professional-player videos, and timed transcripts | ChatGPT Search/Web for discovery and page/date inspection; TranscriptAPI for structured search and captions | Explicit public-caption route via `youtube-transcript-api`; then TinyFish/browser inspection; mark remaining gaps partial |
 | Chinese Hearthstone articles, forums, videos, and compilations | ChatGPT Search/Web for discovery; configured Scrape.do pipeline for repeatable ingestion | Mark the affected source partial/blocked; see [Chinese Hearthstone intelligence](chinese-hearthstone.md) |
+| First-party Hearthstone cached statistics | `stats-api` → `https://api.kolodahearthstone.com/v1` | Check `meta.fetched_at` and `meta.stale`; statistics do not establish causation |
 
 Do not silently substitute another platform. If Reddit or X is required and the corresponding route is unavailable, mark that evidence class `PARTIAL` or `BLOCKED` and cap claim confidence.
 
@@ -54,11 +55,18 @@ python3 scripts/community_sources.py tinyfish-search \
   --query "Hearthstone patch analysis" --include-domains hearthstone.blizzard.com
 
 python3 scripts/community_sources.py tinyfish-fetch --url https://example.com/source
+python3 scripts/community_sources.py stats-api \
+  --operation constructed-archetypes --limit 50
 ```
 
-RedditAPI reads `REDDITAPIS_KEY`; GetXAPI reads `GETXAPI_KEY`; TranscriptAPI reads `TRANSCRIPTAPI_TOKEN`. Configure these only in the local environment or a secret manager. TinyFish credentials remain managed by its own CLI. Chinese ingestion reads `SCRAPE_DO_API_TOKEN` and optionally `KHS_API_TOKEN`. Never place keys in a command argument, target URL, repository file, research bundle, snapshot, output, or error report; provider-required authentication must remain inside a redacted transport boundary.
+RedditAPI reads `REDDITAPIS_KEY`; GetXAPI reads `GETXAPI_KEY`; TranscriptAPI reads `TRANSCRIPTAPI_TOKEN`. Configure these only in the local environment or a secret manager. TinyFish uses `TINYFISH_API_KEY` for its REST Search/Fetch fallback and can use its CLI when installed. Chinese ingestion reads `SCRAPE_DO_API_TOKEN` and optionally `KHS_API_TOKEN`. Never place keys in a command argument, target URL, repository file, research bundle, snapshot, output, or error report; provider-required authentication must remain inside a redacted transport boundary.
 
 The `doctor` command emits only presence booleans and tool availability, never credential values.
+
+`stats-api` is deliberately limited to an allowlist of public `GET /v1/*` endpoints and never accepts
+write operations, arbitrary URLs, or credentials. Supported operations include health, sources,
+datasets, constructed decks/archetypes, Battlegrounds heroes/minions, Arena classes, and parsing
+reliability.
 
 ## Provider rules
 
