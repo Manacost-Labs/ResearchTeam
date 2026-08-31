@@ -72,6 +72,22 @@ def command_argv(body: dict[str, Any]) -> list[str]:
         if options.get("cursor"):
             argv.extend(["--cursor", str(options["cursor"])])
         return argv
+    if command == "youtube-search":
+        query = option_value(options, "query", "")
+        if not query:
+            raise ValueError("query is required")
+        limit = int(option_value(options, "limit", 20))
+        if not 1 <= limit <= 50:
+            raise ValueError("limit must be between 1 and 50")
+        return ["youtube-search", "--query", str(query), "--limit", str(limit)]
+    if command == "youtube-transcript":
+        video = option_value(options, "video", "")
+        if not video:
+            raise ValueError("video is required")
+        argv = ["youtube-transcript", "--video", str(video)]
+        if options.get("language"):
+            argv.extend(["--language", str(options["language"])])
+        return argv
     if command == "tinyfish-search":
         query = option_value(options, "query", "")
         if not query:
