@@ -314,6 +314,45 @@ class CommunitySourcesTest(unittest.TestCase):
         self.assertFalse(raised.exception.retryable)
         self.assertTrue(raised.exception.credits_refunded)
 
+    def test_transcriptapi_retries_rate_limit_with_bounded_retry_after(self) -> None:
+        calls = 0
+        sleeps = []
+
+        def transport(request, timeout):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return (
+                    429,
+                    {"Retry-After": "120"},
+                    json.dumps({"retryable": True}).encode(),
+                )
+            return (
+                200,
+                {},
+                json.dumps(
+                    {"video_id": "dQw4w9WgXcQ", "transcript": []}
+                ).encode(),
+            )
+
+        with patch.dict(
+            os.environ,
+            {community_sources.TRANSCRIPTAPI_KEY_ENV: "fixture-transcript-secret"},
+            clear=False,
+        ):
+            community_sources.transcriptapi_get_json(
+                "/transcript",
+                {"video_id": "dQw4w9WgXcQ"},
+                transport=transport,
+                sleep=sleeps.append,
+            )
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(
+            sleeps,
+            [community_sources.TRANSCRIPTAPI_MAX_RETRY_DELAY_SECONDS],
+        )
+
     def test_public_youtube_transcript_is_explicit_and_preserves_track_metadata(
         self,
     ) -> None:

@@ -40,6 +40,8 @@ TRANSCRIPTAPI_BASE_URL = "https://api.transcriptapi.io"
 REDDIT_KEY_ENV = "REDDITAPIS_KEY"
 GETX_KEY_ENV = "GETXAPI_KEY"
 TRANSCRIPTAPI_KEY_ENV = "TRANSCRIPTAPI_TOKEN"
+TRANSCRIPTAPI_TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
+TRANSCRIPTAPI_MAX_RETRY_DELAY_SECONDS = 5.0
 TINYFISH_KEY_ENV = "TINYFISH_API_KEY"
 TINYFISH_SEARCH_URL = "https://api.search.tinyfish.ai"
 TINYFISH_FETCH_URL = "https://api.fetch.tinyfish.ai"
@@ -236,6 +238,25 @@ def _urllib_json_transport(
         return exc.code, exc.headers, exc.read(MAX_PROVIDER_RESPONSE_BYTES + 1)
 
 
+def _transcriptapi_retry_delay(
+    headers: Mapping[str, str], attempt: int
+) -> float:
+    retry_after = next(
+        (
+            str(value).strip()
+            for name, value in headers.items()
+            if str(name).lower() == "retry-after"
+        ),
+        "",
+    )
+    if re.fullmatch(r"\d+(?:\.\d+)?", retry_after):
+        return min(
+            TRANSCRIPTAPI_MAX_RETRY_DELAY_SECONDS,
+            max(0.1, float(retry_after)),
+        )
+    return 1.5 * (attempt + 1)
+
+
 def transcriptapi_get_json(
     path: str,
     params: dict[str, Any],
@@ -299,8 +320,12 @@ def transcriptapi_get_json(
         error = payload if isinstance(payload, dict) else {}
         retryable_value = error.get("retryable")
         retryable = retryable_value if isinstance(retryable_value, bool) else None
-        if status in {502, 503} and retryable is not False and attempt + 1 < attempts:
-            sleep(1.5 * (attempt + 1))
+        if (
+            status in TRANSCRIPTAPI_TRANSIENT_STATUSES
+            and retryable is not False
+            and attempt + 1 < attempts
+        ):
+            sleep(_transcriptapi_retry_delay(headers, attempt))
             continue
         retry_after = next(
             (
