@@ -30,6 +30,10 @@ from search_support import (
 )
 
 ALL_BRANCH = "__all__"
+REGISTRY_BY_DOMAIN = {
+    "hearthstone": Path(__file__).resolve().parents[1] / "references/domains/hearthstone-sources.json",
+}
+REGISTRY_SECTIONS = ("hosts", "datasets", "creators", "communities", "chinese")
 SNIPPET_INTEGRITY_VALUES = frozenset({"snippet", "search_snippet", "snippet_only"})
 TOP_HOST_SHARE_LIMIT = 0.5
 TOP_HOST_MIN_SOURCES = 6
@@ -42,6 +46,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--json", action="store_true", help="Print the full JSON report")
     parser.add_argument(
         "--strict", action="store_true", help="Exit 1 when a blocking finding exists"
+    )
+    parser.add_argument(
+        "--registry", help="Domain source registry JSON; default chosen from manifest domains"
     )
     return parser.parse_args(argv)
 
@@ -78,7 +85,30 @@ def ratio(numerator: int, denominator: int) -> float | None:
     return round(numerator / denominator, 3)
 
 
-def analyze(root: Path) -> dict[str, Any]:
+def registry_hosts(path: Path) -> dict[str, dict[str, Any]]:
+    """Return canonical host -> registry entry for every host-bearing entry."""
+
+    registry = load_json(path)
+    hosts: dict[str, dict[str, Any]] = {}
+    for section in REGISTRY_SECTIONS:
+        for entry in registry.get(section, []):
+            if not isinstance(entry, dict):
+                continue
+            urls = [entry.get("host")] if entry.get("host") else []
+            urls += entry.get("entry_urls", []) if isinstance(entry.get("entry_urls"), list) else []
+            urls += entry.get("observed_urls", []) if isinstance(entry.get("observed_urls"), list) else []
+            if entry.get("url"):
+                urls.append(entry["url"])
+            for url in urls:
+                if not isinstance(url, str) or not url:
+                    continue
+                host = url_host(url if "://" in url else f"https://{url}")
+                if host:
+                    hosts.setdefault(host, {"id": entry.get("id"), "section": section, "class": entry.get("class", section)})
+    return hosts
+
+
+def analyze(root: Path, registry_path: Path | None = None) -> dict[str, Any]:
     root = root.resolve()
     manifest = load_json(root / "manifest.json")
     plan = load_json(root / "plan.json")
@@ -263,6 +293,44 @@ def analyze(root: Path) -> dict[str, Any]:
             f"evidence with a snapshot but no verified exact_excerpt: {', '.join(unanchored_ids)}"
         )
 
+    # --- registry ----------------------------------------------------------
+    if registry_path is None:
+        domains = manifest.get("domain_adapters")
+        for domain in domains if isinstance(domains, list) else []:
+            candidate = REGISTRY_BY_DOMAIN.get(str(domain))
+            if candidate is not None and candidate.is_file():
+                registry_path = candidate
+                break
+    registry_report: dict[str, Any] = {"present": False}
+    if registry_path is not None:
+        known_hosts = registry_hosts(registry_path)
+        used_hosts = {host for host in host_by_source.values() if host}
+        registry_used = sorted(host for host in used_hosts if host in known_hosts)
+        outside = sorted(host for host in used_hosts if host not in known_hosts)
+        from_registry = sum(1 for host in host_by_source.values() if host in known_hosts)
+        authoritative_used = sorted(
+            host for host in registry_used if known_hosts[host]["class"] in {"official", "statistics", "structured_data", "official_social"}
+        )
+        registry_report = {
+            "present": True,
+            "registry": registry_path.name,
+            "known_hosts": len(known_hosts),
+            "hosts_used_from_registry": registry_used,
+            "hosts_outside_registry": outside,
+            "sources_from_registry": from_registry,
+            "registry_share": ratio(from_registry, len(sources)),
+            "authoritative_hosts_used": authoritative_used,
+        }
+        if sources and len(authoritative_used) < 2:
+            warnings.append(
+                "fewer than two official/statistics registry hosts were used: "
+                + (", ".join(authoritative_used) or "none")
+            )
+        if outside:
+            warnings.append(
+                "sources outside the registry (review for the registry or lineage): " + ", ".join(outside)
+            )
+
     # --- claims ------------------------------------------------------------
     evidence_by_id = {str(item.get("evidence_id")): item for item in evidence}
     critical_material = [
@@ -375,6 +443,7 @@ def analyze(root: Path) -> dict[str, Any]:
             "access_integrity": dict(integrity_counter),
             "snippet_only": snippet_only,
         },
+        "registry": registry_report,
         "anchors": {
             "anchorable_evidence": anchorable,
             "anchored_evidence": anchored,
@@ -421,6 +490,12 @@ def format_summary(report: dict[str, Any]) -> str:
             f"- candidates: {report['candidates']['total']} seen, "
             f"open rate {report['candidates']['open_rate']}"
         )
+    if report["registry"]["present"]:
+        lines.append(
+            f"- registry: {report['registry']['sources_from_registry']}/{sources['total']} sources from "
+            f"known venues, authoritative hosts used: "
+            f"{', '.join(report['registry']['authoritative_hosts_used']) or 'none'}"
+        )
     for branch, item in report["branches"].items():
         missing = ", ".join(item["missing_families"]) or "none"
         lines.append(
@@ -440,8 +515,9 @@ def main(argv: list[str] | None = None) -> int:
     if not (root / "manifest.json").is_file():
         print(f"error: not a research bundle: {root}", file=sys.stderr)
         return 2
+    registry_path = Path(args.registry).expanduser().resolve() if args.registry else None
     try:
-        report = analyze(root)
+        report = analyze(root, registry_path)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

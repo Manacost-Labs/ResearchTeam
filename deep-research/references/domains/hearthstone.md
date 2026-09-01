@@ -122,6 +122,10 @@ Treat this outline as the search map, not a decorative final table of contents. 
 
 For sections 3–8, give X and YouTube `high` emphasis when access is available and no tighter cost limit was requested. Search X for current build choices, direct expert statements, matchup adaptations, corrections, and disagreement. Search YouTube for current-patch guides, coaching, tournament or ladder demonstrations, and mistakes; attach only relevant timestamped segments. Compare independent creators instead of counting repeated reactions to one list or one dataset.
 
+## Known venues and patch chronology
+
+Two machine-readable files back the routing below. [hearthstone-sources.json](hearthstone-sources.json) lists official, statistical, community, creator, and Chinese venues with the query family each serves; `scripts/registry_seed.py RUN_DIRECTORY --apply` turns the entries for the run's mode into planned direct opens before any search-engine query, and `scripts/search_coverage.py` reports how many sources came from known venues. [hearthstone-patches.json](hearthstone-patches.json) is the patch timeline; `scripts/freshness_check.py RUN_DIRECTORY --strict` verifies that the declared client patch is the latest for the mode as of the run date, that every cited patch exists, and that a source predating the latest balance patch for the mode carries a stale, partially stale, historical, or version-compatible label; a timeline entry's `balance_modes` says which modes a patch actually changed, so a Battlegrounds source stays current across a constructed-only patch. Add a timeline entry the day a patch or hotfix ships, citing the official page. Registry presence is a routing aid, never evidence of authority for a specific claim, and creator qualification stays as observed until rank evidence is attached.
+
 ## Research flow
 
 ```text

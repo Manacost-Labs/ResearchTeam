@@ -210,10 +210,50 @@ def normalize_for_match(text: str) -> str:
     return _WHITESPACE_RE.sub(" ", translated).strip()
 
 
-def quote_in_text(text: str, quote: str) -> bool:
-    """Return whether ``quote`` appears in ``text`` after normalization."""
+_ELLIPSIS_RE = re.compile(r"\s*(?:\.\.\.|…)\s*")
 
-    needle = normalize_for_match(quote)
-    if not needle:
+
+def quote_in_text(text: str, quote: str) -> bool:
+    """Return whether ``quote`` appears in ``text`` after normalization.
+
+    An excerpt may elide words with ``...``; each fragment must then appear in
+    order, and every fragment needs at least two words so a lone token cannot
+    anchor a claim.
+    """
+
+    haystack = normalize_for_match(text)
+    fragments = [
+        fragment.strip() for fragment in _ELLIPSIS_RE.split(normalize_for_match(quote))
+    ]
+    fragments = [fragment for fragment in fragments if fragment]
+    if not fragments:
         return False
-    return needle in normalize_for_match(text)
+    if len(fragments) > 1 and any(len(fragment.split()) < 2 for fragment in fragments):
+        return False
+    position = 0
+    for fragment in fragments:
+        found = haystack.find(fragment, position)
+        if found < 0:
+            return False
+        position = found + len(fragment)
+    return True
+
+
+GAME_MODE_KEYS = ("mode", "game_mode", "format", "format_name")
+
+
+def infer_game_mode(context: object) -> str:
+    """Map a manifest ``current_context`` to battlegrounds, constructed, arena, or all."""
+
+    if not isinstance(context, dict):
+        return "all"
+    text = " ".join(
+        str(context.get(key, "")) for key in GAME_MODE_KEYS if context.get(key)
+    ).casefold()
+    if "battleground" in text or "поля сражений" in text:
+        return "battlegrounds"
+    if "arena" in text or "арена" in text:
+        return "arena"
+    if any(word in text for word in ("standard", "wild", "twist", "constructed", "стандарт", "вольн")):
+        return "constructed"
+    return "all"

@@ -205,7 +205,7 @@ class PlanQueriesTest(unittest.TestCase):
             result = run(PLAN, str(run_dir), "--topic", "Dark Gift", "--family", "nonsense")
             self.assertEqual(result.returncode, 2)
             self.assertIn("unknown query family", result.stderr)
-            quick = run(PLAN, str(run_dir), "--topic", "Dark Gift", "--json")
+            quick = run(PLAN, str(run_dir), "--topic", "Dark Gift", "--language", "en", "--json")
             self.assertEqual(quick.returncode, 0, quick.stderr)
             families = {json.loads(line)["family"] for line in quick.stdout.splitlines()}
             self.assertEqual(families, {"general", "primary", "statistics", "experts", "reddit", "x", "youtube", "mistakes", "counterargument", "freshness"})
@@ -574,3 +574,151 @@ class Schema12Test(unittest.TestCase):
             self.assertEqual(rolled.returncode, 0, rolled.stderr)
             self.assertEqual(json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))["schema_version"], "1.1")
             self.assertEqual(read_jsonl(run_dir / "queries.jsonl")[0]["family"], "Polish law")
+
+
+REGISTRY = ROOT / "references/domains/hearthstone-sources.json"
+TIMELINE = ROOT / "references/domains/hearthstone-patches.json"
+REGISTRY_SEED = SCRIPTS / "registry_seed.py"
+FRESHNESS = SCRIPTS / "freshness_check.py"
+
+
+class ExcerptMatchingTest(unittest.TestCase):
+    def test_elided_excerpt_matches_in_order_only(self) -> None:
+        from search_support import quote_in_text
+
+        text = "Starting on Turn 3, you may spend 3 Gold to Discover a minion. This can be done once per turn, up to 3 times per game."
+        self.assertTrue(quote_in_text(text, "Starting on Turn 3 ... once per turn, up to 3 times"))
+        self.assertTrue(quote_in_text(text, "starting on turn 3 … up to 3 times per game."))
+        self.assertFalse(quote_in_text(text, "up to 3 times ... Starting on Turn 3"))
+        self.assertFalse(quote_in_text(text, "Turn ... game"))
+        self.assertTrue(quote_in_text("It’s a “quoted” — phrase", "it's a \"quoted\" - phrase"))
+
+
+class PlanQueriesRussianDefaultTest(unittest.TestCase):
+    def test_hearthstone_domain_defaults_to_english_and_russian(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp) / "run"
+            init_bundle(run_dir)
+            manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+            manifest["current_context"] = {"client_patch": "36.4", "mode": "Solo Battlegrounds"}
+            (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            result = run(PLAN, str(run_dir), "--topic", "Dark Gift timing", "--json")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            records = [json.loads(line) for line in result.stdout.splitlines()]
+            languages = {record["language"] for record in records}
+            self.assertEqual(languages, {"en", "ru"})
+            self.assertIn("Dark Gift timing patch notes 36.4", [record["query"] for record in records])
+
+
+class RegistrySeedTest(unittest.TestCase):
+    def test_registry_is_well_formed(self) -> None:
+        import registry_seed
+
+        registry = registry_seed.load_registry(REGISTRY)
+        self.assertGreaterEqual(len(registry["hosts"]), 10)
+        self.assertTrue(all(entry.get("authority") for entry in registry["hosts"]))
+
+    def test_seed_filters_by_mode_and_dedups(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp) / "run"
+            init_bundle(run_dir)
+            manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+            manifest["current_context"] = {"mode": "Solo Battlegrounds"}
+            (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            preview = run(REGISTRY_SEED, str(run_dir), "--json")
+            self.assertEqual(preview.returncode, 0, preview.stderr)
+            records = [json.loads(line) for line in preview.stdout.splitlines()]
+            ids = {record["registry_id"] for record in records}
+            self.assertIn("blizzard-news", ids)
+            self.assertIn("r-bobstavern", ids)
+            self.assertIn("koloda-battlegrounds-heroes", ids)
+            self.assertNotIn("hsguru", ids)
+            self.assertNotIn("r-competitivehs", ids)
+            self.assertTrue(all(record["status"] == "planned" for record in records))
+            self.assertTrue(all(record["family"] in QUERY_FAMILIES for record in records))
+            self.assertFalse((run_dir / "query-plan.jsonl").exists())
+
+            applied = run(REGISTRY_SEED, str(run_dir), "--apply", "--deliverable-section", "SEC-0001")
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            first = read_jsonl(run_dir / "query-plan.jsonl")
+            self.assertEqual(len(first), len(records))
+            self.assertEqual(first[0]["deliverable_section_ids"], ["SEC-0001"])
+            again = run(REGISTRY_SEED, str(run_dir), "--apply")
+            self.assertEqual(again.returncode, 0, again.stderr)
+            self.assertEqual(len(read_jsonl(run_dir / "query-plan.jsonl")), len(records))
+
+            constructed = run(REGISTRY_SEED, str(run_dir), "--mode", "constructed", "--section", "hosts", "--json")
+            constructed_ids = {json.loads(line)["registry_id"] for line in constructed.stdout.splitlines()}
+            self.assertIn("hsguru", constructed_ids)
+            self.assertNotIn("amalgadon", constructed_ids)
+
+    def test_coverage_reports_registry_share(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp) / "run"
+            init_bundle(run_dir)
+            write_jsonl(
+                run_dir / "sources.jsonl",
+                [
+                    source("SRC-0001", "https://hearthstone.blizzard.com/en-us/news/1", "LIN-A"),
+                    source("SRC-0002", "https://api.kolodahearthstone.com/v1/battlegrounds/heroes", "LIN-B"),
+                    source("SRC-0003", "https://randomblog.example/post", "LIN-C"),
+                ],
+            )
+            report = search_coverage.analyze(run_dir)
+            registry = report["registry"]
+            self.assertTrue(registry["present"])
+            self.assertEqual(registry["sources_from_registry"], 2)
+            self.assertEqual(registry["hosts_outside_registry"], ["randomblog.example"])
+            self.assertEqual(registry["authoritative_hosts_used"], ["api.kolodahearthstone.com", "hearthstone.blizzard.com"])
+            self.assertTrue(any("outside the registry" in item for item in report["findings"]["warnings"]))
+
+
+class FreshnessCheckTest(unittest.TestCase):
+    def test_timeline_is_well_formed(self) -> None:
+        import freshness_check
+
+        patches = freshness_check.load_timeline(TIMELINE)
+        self.assertEqual(patches[-1]["version"], "36.4")
+        self.assertEqual(freshness_check.latest_as_of(freshness_check.patches_for_mode(patches, "battlegrounds"), __import__("datetime").date(2026, 8, 10))["version"], "36.2.1")
+
+    def test_stale_patch_and_unlabeled_sources_are_flagged(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp) / "run"
+            init_bundle(run_dir)
+            manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+            manifest["as_of"] = "2026-08-31"
+            manifest["current_context"] = {"client_patch": "36.2.2", "mode": "Solo Battlegrounds"}
+            (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            old_current = source("SRC-0001", "https://hearthstone.blizzard.com/news/1", "LIN-A")
+            old_current.update({"patch": "36.2", "freshness_status": "CURRENT"})
+            old_labeled = source("SRC-0002", "https://hearthstone.blizzard.com/news/2", "LIN-B")
+            old_labeled.update({"patch": "36.2", "freshness_status": "STALE_IN_PART"})
+            unknown = source("SRC-0003", "https://hearthstone.blizzard.com/news/3", "LIN-C")
+            unknown.update({"patch": "99.9"})
+            no_patch = source("SRC-0004", "https://www.youtube.com/watch?v=abc", "LIN-D")
+            no_patch.update({"freshness_status": "CURRENT", "published_at": "2026-08-10"})
+            # Battlegrounds balance last changed in 36.2.2; a 36.2.2 source labeled CURRENT stays valid across 36.4.
+            still_current = source("SRC-0005", "https://hearthstone.blizzard.com/news/5", "LIN-E")
+            still_current.update({"patch": "36.2.2", "freshness_status": "CURRENT"})
+            write_jsonl(run_dir / "sources.jsonl", [old_current, old_labeled, unknown, no_patch, still_current])
+
+            result = run(FRESHNESS, str(run_dir), "--strict")
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("declared client patch 36.2.2 is older than 36.4", result.stdout)
+            self.assertIn("SRC-0001 (36.2 < 36.2.2)", result.stdout)
+            self.assertNotIn("SRC-0002", result.stdout.split("without a stale")[1].split("\n")[0])
+            self.assertIn("SRC-0003 (99.9)", result.stdout)
+            self.assertNotIn("SRC-0005", result.stdout)
+            self.assertIn("published before the latest balance patch and name no patch: SRC-0004", result.stdout)
+
+            manifest["current_context"]["client_patch"] = "36.4"
+            (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            old_current["freshness_status"] = "VERSION_COMPATIBLE"
+            unknown["patch"] = "36.4"
+            write_jsonl(run_dir / "sources.jsonl", [old_current, old_labeled, unknown, no_patch, still_current])
+            result = run(FRESHNESS, str(run_dir), "--strict", "--json")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            report = json.loads(result.stdout)
+            self.assertEqual(report["findings"]["errors"], [])
+            self.assertEqual(report["latest_patch"]["version"], "36.4")
+            self.assertEqual(report["latest_balance_patch"]["version"], "36.2.2")

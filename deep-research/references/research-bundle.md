@@ -20,9 +20,11 @@ python3 scripts/validate_research_run.py RUN_DIRECTORY --stage final
 python3 scripts/fingerprint_research_sources.py RUN_DIRECTORY --apply
 python3 scripts/migrate_research_bundle.py LEGACY_RUN --apply
 
+python3 scripts/registry_seed.py RUN_DIRECTORY --apply
 python3 scripts/plan_queries.py RUN_DIRECTORY --language en --language ru --apply
 python3 scripts/fetch_source.py RUN_DIRECTORY URL --source-type official --query-id QRY-0001 --apply
 python3 scripts/search_coverage.py RUN_DIRECTORY --strict
+python3 scripts/freshness_check.py RUN_DIRECTORY --strict
 ```
 
 The initializer refuses to overwrite a non-empty directory.
@@ -129,7 +131,7 @@ Use canonical values so search coverage can be measured. `pass` is one of `disco
 
 ### Query plan
 
-`query-plan.jsonl` is written by `plan_queries.py` and holds planned records with `status: planned` and `planned_at`. It is not an executed ledger. When a planned query runs, copy it into `queries.jsonl` with `executed_at`, the real `status`, and `result_source_ids`. `search_coverage.py` reports planned queries that were never executed.
+`query-plan.jsonl` is written by `plan_queries.py` and `registry_seed.py` and holds planned records with `status: planned` and `planned_at`. It is not an executed ledger. When a planned query runs, copy it into `queries.jsonl` with `executed_at`, the real `status`, and `result_source_ids`. `search_coverage.py` reports planned queries that were never executed.
 
 ### Candidate
 

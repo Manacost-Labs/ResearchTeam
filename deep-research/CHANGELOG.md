@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added a Hearthstone source registry (`references/domains/hearthstone-sources.json`) with official, statistics, structured-data, community, creator, and Chinese venues, plus `scripts/registry_seed.py`, which plans direct opens by game mode before any search-engine query; the search coverage report now shows the share of sources from known venues and warns when fewer than two official or statistics hosts were used or when sources fall outside the registry.
+- Added a machine-readable Hearthstone patch timeline (`references/domains/hearthstone-patches.json`) and `scripts/freshness_check.py`, which verifies the declared client patch against the latest entry for the run's mode, rejects unknown patch versions, and flags sources that predate the latest patch without a stale, historical, or version-compatible label.
+- `plan_queries.py` now defaults to English and Russian templates for Hearthstone runs and reads `client_patch` and balance-patch keys from `current_context`; `exact_excerpt` may elide words with `...` when every fragment appears in order.
+
 - Added bundle schema 1.2 (search integrity): canonical query `pass`/`family` values become errors, queries carry a `language`, an `exact_excerpt` is verified against the source snapshot, final validation requires verified excerpt anchors for critical/material evidence with snapshots and a `challenge_search` or challenging evidence for every critical claim, and `output_profile` is mandatory. New bundles initialize at 1.2; 1.1 bundles stay valid and upgrade through `migrate_research_bundle.py --to 1.2 --family-map`, which refuses to guess unmapped families and is reversible.
 - The search coverage report now measures anchor coverage: evidence with a snapshot whose excerpt was found in it.
 

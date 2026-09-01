@@ -123,7 +123,18 @@ TEMPLATES: dict[str, dict[str, tuple[str, ...]]] = {
     },
 }
 
-CONTEXT_VERSION_KEYS = ("patch", "version", "season", "expansion", "release")
+CONTEXT_VERSION_KEYS = (
+    "patch",
+    "client_patch",
+    "balance_patch",
+    "latest_battlegrounds_balance_patch",
+    "latest_substantive_balance",
+    "version",
+    "season",
+    "expansion",
+    "release",
+)
+RUSSIAN_DEFAULT_DOMAINS = frozenset({"hearthstone"})
 
 
 def utc_now() -> str:
@@ -346,7 +357,10 @@ def main(argv: list[str] | None = None) -> int:
     if unknown:
         print(f"error: unknown query family: {', '.join(unknown)}", file=sys.stderr)
         return 2
-    languages = list(dict.fromkeys(args.language)) or ["en"]
+    domains = manifest.get("domain_adapters")
+    domain_values = {str(item) for item in domains} if isinstance(domains, list) else set()
+    default_languages = ["en", "ru"] if domain_values & RUSSIAN_DEFAULT_DOMAINS else ["en"]
+    languages = list(dict.fromkeys(args.language)) or default_languages
     unsupported = [language for language in languages if language not in TEMPLATES]
     if unsupported:
         print(f"error: unsupported template language: {', '.join(unsupported)}", file=sys.stderr)
