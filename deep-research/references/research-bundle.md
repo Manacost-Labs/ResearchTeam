@@ -135,7 +135,7 @@ Use canonical values so search coverage can be measured. `pass` is one of `disco
 
 ### Candidate
 
-`candidates.jsonl` makes rejected search results visible. Each record has `candidate_id` (`CAN-0001`), `query_id`, `url`, `decision` (`opened`, `rejected`, or `deferred`), optional `rank`, `title`, and `snippet_sha256`. A `rejected` record needs a canonical `reason`: `duplicate_lineage`, `off_topic`, `stale_version`, `low_authority`, `snippet_only`, `paywalled`, `login_required`, `unavailable`, `wrong_mode`, `wrong_language`, `already_saturated`, or `other`. An `opened` record must reference the resulting `source_id`. The validator checks these references when the file exists.
+`candidates.jsonl` makes rejected search results visible. Each record has `candidate_id` (`CAN-0001`), `query_id`, `url`, `decision` (`opened`, `rejected`, or `deferred`), optional `rank`, `title`, and `snippet_sha256`. A `rejected` record needs a canonical `reason`: `duplicate_lineage`, `off_topic`, `stale_version`, `low_authority`, `snippet_only`, `paywalled`, `login_required`, `unavailable`, `wrong_mode`, `wrong_language`, `already_saturated`, or `other`. An `opened` record must reference the resulting `source_id`. The validator checks these references when the file exists. `fetch_source.py --query-id` writes the `opened` record itself; `candidates.py record` and `candidates.py bulk` record rejections and deferrals, keyed by query and canonical URL so a deferred result later opened keeps one row.
 
 ### Challenge search
 
@@ -146,6 +146,10 @@ A critical or material claim without `challenging_evidence_ids` should carry `ch
 Schema `1.1` requires `source_id`, `title`, `requested_url`, `final_url`, `accessed_at`, `access_integrity`, `source_type`, `lineage_id`, `mutable`, and `fingerprint_status`.
 
 For `verified`, also record `snapshot_path`, `content_sha256`, `content_bytes`, and `fingerprinted_at`. The validator recalculates the hash. `fetch_source.py` produces a verified record, the snapshot, an optional `canonical_url`, and a derived `lineage_id` in one step; pass `--lineage` when the page reposts a known upstream origin, and `--file` to ingest a page already saved by the host tool. For `unavailable` or `exempt`, record `fingerprint_reason`. Never preserve authenticated pages, private session data, paywalled content without permission, or copyrighted material beyond what the research task permits.
+
+### Lineage suggestions
+
+`lineage_suggest.py RUN_DIRECTORY` compares snapshot texts with word-shingle Jaccard similarity and lists pairs above the threshold whose sources still carry different `lineage_id` values; `--apply` makes the later-accessed source adopt the earlier lineage and records `previous_lineage_id`, `lineage_similarity`, and `lineage_matched_source_id`. Textual overlap is the only signal: paraphrases of one press release or slices of one dataset still need a hand-recorded lineage.
 
 ### Evidence
 

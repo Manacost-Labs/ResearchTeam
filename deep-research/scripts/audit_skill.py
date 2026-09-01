@@ -34,6 +34,8 @@ REQUIRED = {
     "scripts/search_coverage.py",
     "scripts/fetch_source.py",
     "scripts/registry_seed.py",
+    "scripts/candidates.py",
+    "scripts/lineage_suggest.py",
     "scripts/freshness_check.py",
     "references/domains/hearthstone-sources.json",
     "references/domains/hearthstone-patches.json",

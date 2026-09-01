@@ -98,6 +98,8 @@ Do not hand-write one query per branch. In a persistent run, first seed the know
 
 Run `scripts/search_coverage.py RUN_DIRECTORY` after every pass and `--strict` before the final audit. It reports families per branch, planned-but-unexecuted queries, candidate open rate, host and lineage concentration, challenge coverage for critical and material claims, and fingerprint coverage. A missing required family on a material branch or a critical claim without a challenge search is a blocking finding.
 
+The report also attributes every claim to the earliest query whose results supported it and counts trailing zero-yield queries per branch; a branch counts as saturated after three consecutive queries that produced no new claim, and the report warns until then. Run `scripts/lineage_suggest.py` before counting corroboration so near-duplicate snapshots share one lineage.
+
 For deep or exhaustive research, the report replaces a hand-kept log of each material branch:
 
 - query families attempted;

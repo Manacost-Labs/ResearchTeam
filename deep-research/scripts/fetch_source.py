@@ -33,6 +33,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
+from candidates import record_candidate
 from search_support import canonical_url, lineage_hint, next_id
 
 MAX_RESPONSE_BYTES = 5_000_000
@@ -429,6 +430,14 @@ def main(argv: list[str] | None = None, *, transport: Transport | None = None) -
         atomic_write(
             root / "queries.jsonl",
             "".join(json.dumps(item, ensure_ascii=False) + "\n" for item in queries),
+        )
+        record_candidate(
+            root,
+            query_id=args.query_id,
+            url=args.url,
+            decision="opened",
+            source_id=source_id,
+            title=title,
         )
     print(
         f"Recorded {source_id}: {title} ({record['content_bytes']} bytes, "

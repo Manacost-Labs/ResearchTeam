@@ -722,3 +722,160 @@ class FreshnessCheckTest(unittest.TestCase):
             self.assertEqual(report["findings"]["errors"], [])
             self.assertEqual(report["latest_patch"]["version"], "36.4")
             self.assertEqual(report["latest_balance_patch"]["version"], "36.2.2")
+
+
+CANDIDATES = SCRIPTS / "candidates.py"
+LINEAGE = SCRIPTS / "lineage_suggest.py"
+
+
+class CandidatesLedgerTest(unittest.TestCase):
+    def test_record_reject_bulk_and_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp) / "run"
+            init_bundle(run_dir)
+            write_jsonl(run_dir / "queries.jsonl", [executed_query("QRY-0001", "primary", "Dark Gift official", [])])
+            rejected = run(CANDIDATES, "record", str(run_dir), "--query-id", "QRY-0001", "--url", "https://agg.example/x?utm_source=a", "--decision", "rejected", "--reason", "duplicate_lineage", "--rank", "3")
+            self.assertEqual(rejected.returncode, 0, rejected.stderr)
+            missing_reason = run(CANDIDATES, "record", str(run_dir), "--query-id", "QRY-0001", "--url", "https://agg.example/y", "--decision", "rejected")
+            self.assertEqual(missing_reason.returncode, 2)
+            unknown = run(CANDIDATES, "record", str(run_dir), "--query-id", "QRY-0009", "--url", "https://agg.example/y", "--decision", "deferred")
+            self.assertEqual(unknown.returncode, 2)
+            # Same query and canonical URL updates the row instead of duplicating it.
+            again = run(CANDIDATES, "record", str(run_dir), "--query-id", "QRY-0001", "--url", "https://www.agg.example/x/", "--decision", "deferred")
+            self.assertEqual(again.returncode, 0, again.stderr)
+            records = read_jsonl(run_dir / "candidates.jsonl")
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["decision"], "deferred")
+            self.assertNotIn("reason", records[0])
+            self.assertEqual(records[0]["rank"], 3)
+
+            bulk = Path(temp) / "bulk.json"
+            bulk.write_text(json.dumps([
+                {"query_id": "QRY-0001", "url": "https://b.example/1", "decision": "rejected", "reason": "off_topic"},
+                {"query_id": "QRY-0001", "url": "https://b.example/2"},
+            ]), encoding="utf-8")
+            result = run(CANDIDATES, "bulk", str(run_dir), str(bulk))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(len(read_jsonl(run_dir / "candidates.jsonl")), 3)
+            summary = run(CANDIDATES, "summary", str(run_dir))
+            self.assertIn("deferred=2", summary.stdout)
+            self.assertIn("rejected off_topic: 1", summary.stdout)
+            validation = run(VALIDATE, str(run_dir), "--stage", "working")
+            self.assertEqual(validation.returncode, 0, validation.stdout)
+
+    def test_fetch_source_records_opened_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp) / "run"
+            init_bundle(run_dir)
+            write_jsonl(run_dir / "queries.jsonl", [executed_query("QRY-0001", "primary", "Dark Gift official", [])])
+            url = "https://us.forums.blizzard.com/en/hearthstone/t/dark-gifts/163606"
+            run(CANDIDATES, "record", str(run_dir), "--query-id", "QRY-0001", "--url", url, "--decision", "deferred")
+            applied = fetch_source.main([str(run_dir), url, "--query-id", "QRY-0001", "--apply"], transport=fake_transport())
+            self.assertEqual(applied, 0)
+            records = read_jsonl(run_dir / "candidates.jsonl")
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["decision"], "opened")
+            self.assertEqual(records[0]["source_id"], "SRC-0001")
+            self.assertEqual(records[0]["title"], "Dark Gift Developer Insight")
+            report = search_coverage.analyze(run_dir)
+            self.assertEqual(report["candidates"]["open_rate"], 1.0)
+
+
+class LineageSuggestTest(unittest.TestCase):
+    def test_near_duplicate_snapshots_share_lineage_after_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp) / "run"
+            init_bundle(run_dir)
+            base = " ".join(f"word{i} dark gift timing matters on turn {i % 7}" for i in range(60))
+            (run_dir / "snapshots").mkdir()
+            texts = {
+                "SRC-0001": "Source: A\nURL: https://a.example/orig\n\n" + base,
+                "SRC-0002": "Source: B\nURL: https://b.example/repost\n\n" + base + " extra closing remark",
+                "SRC-0003": "Source: C\nURL: https://c.example/other\n\n" + " ".join(f"unrelated token {i} about arena drafting" for i in range(60)),
+            }
+            records = []
+            for index, (source_id, text) in enumerate(texts.items(), 1):
+                (run_dir / "snapshots" / f"{source_id}.txt").write_text(text, encoding="utf-8")
+                record = source(source_id, f"https://{'abc'[index-1]}.example/{source_id}", f"LIN-{index}")
+                record["accessed_at"] = f"2026-09-01T10:0{index}:00Z"
+                record["snapshot_path"] = f"snapshots/{source_id}.txt"
+                records.append(record)
+            write_jsonl(run_dir / "sources.jsonl", records)
+
+            preview = run(LINEAGE, str(run_dir), "--json")
+            self.assertEqual(preview.returncode, 0, preview.stderr)
+            report = json.loads(preview.stdout)
+            self.assertEqual(report["compared"], 3)
+            self.assertEqual(len(report["suggestions"]), 1)
+            suggestion = report["suggestions"][0]
+            self.assertEqual((suggestion["source_a"], suggestion["source_b"]), ("SRC-0001", "SRC-0002"))
+            self.assertEqual(suggestion["adopting_source_id"], "SRC-0002")
+            self.assertEqual(suggestion["suggested_lineage_id"], "LIN-1")
+            self.assertEqual(read_jsonl(run_dir / "sources.jsonl")[1]["lineage_id"], "LIN-2")
+
+            applied = run(LINEAGE, str(run_dir), "--apply")
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            self.assertIn("Applied lineage to 1 sources", applied.stdout)
+            updated = read_jsonl(run_dir / "sources.jsonl")
+            self.assertEqual(updated[1]["lineage_id"], "LIN-1")
+            self.assertEqual(updated[1]["previous_lineage_id"], "LIN-2")
+            self.assertEqual(updated[1]["lineage_matched_source_id"], "SRC-0001")
+            self.assertEqual(updated[2]["lineage_id"], "LIN-3")
+            rerun = json.loads(run(LINEAGE, str(run_dir), "--json").stdout)
+            self.assertEqual(rerun["suggestions"], [])
+
+
+class SaturationTest(unittest.TestCase):
+    def test_yield_attribution_and_trailing_zero_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp) / "run"
+            init_bundle(run_dir, depth="quick")
+            queries = [
+                executed_query("QRY-0001", "primary", "q1", ["SRC-0001"]),
+                executed_query("QRY-0002", "statistics", "q2", ["SRC-0002"]),
+                executed_query("QRY-0003", "experts", "q3", []),
+                executed_query("QRY-0004", "counterargument", "q4", ["SRC-0001"]),
+                executed_query("QRY-0005", "freshness", "q5", []),
+            ]
+            for index, record in enumerate(queries):
+                record["executed_at"] = f"2026-09-01T10:0{index}:00Z"
+            write_jsonl(run_dir / "queries.jsonl", queries)
+            write_jsonl(run_dir / "sources.jsonl", [
+                source("SRC-0001", "https://hearthstone.blizzard.com/news/1", "LIN-A"),
+                source("SRC-0002", "https://hsreplay.net/meta/", "LIN-B"),
+            ])
+            write_jsonl(run_dir / "evidence.jsonl", [
+                {"evidence_id": "EVD-0001", "source_id": "SRC-0001", "claim_ids": ["CLM-0001"], "relationship": "supporting", "locator": "p", "evidence_type": "fact", "faithful_paraphrase": "x"},
+                {"evidence_id": "EVD-0002", "source_id": "SRC-0002", "claim_ids": ["CLM-0002"], "relationship": "supporting", "locator": "p", "evidence_type": "statistic", "faithful_paraphrase": "y"},
+            ])
+            write_jsonl(run_dir / "claims.jsonl", [
+                {"claim_id": "CLM-0001", "claim": "a", "importance": "critical", "status": "supported", "confidence": "HIGH", "supporting_evidence_ids": ["EVD-0001"], "challenging_evidence_ids": [], "challenge_search": {"query_ids": ["QRY-0004"], "result": "none_found"}},
+                {"claim_id": "CLM-0002", "claim": "b", "importance": "material", "status": "supported", "confidence": "MEDIUM", "supporting_evidence_ids": ["EVD-0002"], "challenging_evidence_ids": []},
+            ])
+            report = search_coverage.analyze(run_dir)
+            self.assertEqual(report["yield_by_query"], {"QRY-0001": 1, "QRY-0002": 1, "QRY-0003": 0, "QRY-0004": 0, "QRY-0005": 0})
+            sat = report["saturation"]["__all__"]
+            self.assertEqual(sat["claims_yielded"], 2)
+            self.assertEqual(sat["last_yield_query_id"], "QRY-0002")
+            self.assertEqual(sat["trailing_zero_yield"], 3)
+            self.assertTrue(sat["saturated"])
+            self.assertFalse(any("not yet saturated" in item for item in report["findings"]["warnings"]))
+            # A query that only re-finds a known source yields nothing; one that supports a new claim resets the run.
+            queries.append({**executed_query("QRY-0006", "reddit", "q6", ["SRC-0002"]), "executed_at": "2026-09-01T10:09:00Z"})
+            write_jsonl(run_dir / "queries.jsonl", queries)
+            self.assertEqual(search_coverage.analyze(run_dir)["saturation"]["__all__"]["trailing_zero_yield"], 4)
+            queries.append({**executed_query("QRY-0007", "youtube", "q7", ["SRC-0003"]), "executed_at": "2026-09-01T10:10:00Z"})
+            write_jsonl(run_dir / "queries.jsonl", queries)
+            sources = read_jsonl(run_dir / "sources.jsonl")
+            sources.append(source("SRC-0003", "https://www.youtube.com/watch?v=abc", "LIN-C"))
+            write_jsonl(run_dir / "sources.jsonl", sources)
+            evidence = read_jsonl(run_dir / "evidence.jsonl")
+            evidence.append({"evidence_id": "EVD-0003", "source_id": "SRC-0003", "claim_ids": ["CLM-0003"], "relationship": "supporting", "locator": "12:30", "evidence_type": "opinion", "faithful_paraphrase": "z"})
+            write_jsonl(run_dir / "evidence.jsonl", evidence)
+            claims = read_jsonl(run_dir / "claims.jsonl")
+            claims.append({"claim_id": "CLM-0003", "claim": "c", "importance": "supporting", "status": "supported", "confidence": "LOW", "supporting_evidence_ids": ["EVD-0003"], "challenging_evidence_ids": []})
+            write_jsonl(run_dir / "claims.jsonl", claims)
+            report = search_coverage.analyze(run_dir)
+            self.assertEqual(report["yield_by_query"]["QRY-0007"], 1)
+            self.assertEqual(report["saturation"]["__all__"]["trailing_zero_yield"], 0)
+            self.assertTrue(any("not yet saturated" in item for item in report["findings"]["warnings"]))

@@ -38,6 +38,7 @@ SNIPPET_INTEGRITY_VALUES = frozenset({"snippet", "search_snippet", "snippet_only
 TOP_HOST_SHARE_LIMIT = 0.5
 TOP_HOST_MIN_SOURCES = 6
 EMPTY_QUERY_SHARE_LIMIT = 0.5
+SATURATION_ZERO_RUN = 3
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -392,6 +393,64 @@ def analyze(root: Path, registry_path: Path | None = None) -> dict[str, Any]:
             + ", ".join(single_host_critical)
         )
 
+    # --- saturation --------------------------------------------------------
+    # A claim is attributed to the earliest executed query whose result sources
+    # carry one of its supporting evidence items. Trailing zero-yield queries
+    # on a branch approximate saturation; the rule is a signal, not a proof.
+    ordered_queries = sorted(
+        executed_queries,
+        key=lambda record: (str(record.get("executed_at", "")), str(record.get("query_id", ""))),
+    )
+    claim_sources: dict[str, set[str]] = {}
+    for record in claims:
+        claim_id = str(record.get("claim_id", "?"))
+        claim_sources[claim_id] = {
+            str(evidence_by_id[evidence_id].get("source_id"))
+            for evidence_id in string_list(record, "supporting_evidence_ids")
+            if evidence_id in evidence_by_id
+        }
+    attributed: set[str] = set()
+    yield_by_query: dict[str, int] = {}
+    for record in ordered_queries:
+        query_id = str(record.get("query_id", "?"))
+        found = set(string_list(record, "result_source_ids"))
+        produced = 0
+        for claim_id, claim_source_ids in claim_sources.items():
+            if claim_id not in attributed and claim_source_ids & found:
+                attributed.add(claim_id)
+                produced += 1
+        yield_by_query[query_id] = produced
+    saturation: dict[str, Any] = {}
+    for branch in branch_ids:
+        branch_order = [
+            record
+            for record in ordered_queries
+            if branch == ALL_BRANCH or branch in string_list(record, "deliverable_section_ids")
+        ]
+        trailing = 0
+        last_yield: str | None = None
+        for record in branch_order:
+            query_id = str(record.get("query_id", "?"))
+            if yield_by_query.get(query_id, 0):
+                trailing = 0
+                last_yield = query_id
+            else:
+                trailing += 1
+        saturation[branch] = {
+            "queries": len(branch_order),
+            "claims_yielded": sum(yield_by_query.get(str(r.get("query_id")), 0) for r in branch_order),
+            "last_yield_query_id": last_yield,
+            "trailing_zero_yield": trailing,
+            "saturated": trailing >= SATURATION_ZERO_RUN,
+        }
+        if section_status.get(branch) == "excluded":
+            continue
+        if branch_order and not saturation[branch]["saturated"]:
+            warnings.append(
+                f"branch {branch}: not yet saturated ({trailing} consecutive zero-yield queries, "
+                f"rule needs {SATURATION_ZERO_RUN})"
+            )
+
     # --- query-level warnings ---------------------------------------------
     if executed_queries:
         empty_share = 1 - with_results / len(executed_queries)
@@ -460,6 +519,8 @@ def analyze(root: Path, registry_path: Path | None = None) -> dict[str, Any]:
             "single_host_critical": single_host_critical,
         },
         "branches": branches_report,
+        "saturation": saturation,
+        "yield_by_query": yield_by_query,
         "findings": {"errors": errors, "warnings": warnings},
     }
 
@@ -498,9 +559,12 @@ def format_summary(report: dict[str, Any]) -> str:
         )
     for branch, item in report["branches"].items():
         missing = ", ".join(item["missing_families"]) or "none"
+        sat = report["saturation"].get(branch, {})
         lines.append(
             f"- branch {branch}: {item['queries']} queries, {item['sources']} sources, "
-            f"missing families: {missing}"
+            f"missing families: {missing}; claims yielded {sat.get('claims_yielded', 0)}, "
+            f"trailing zero-yield {sat.get('trailing_zero_yield', 0)}"
+            f"{' (saturated)' if sat.get('saturated') else ''}"
         )
     for error in findings["errors"]:
         lines.append(f"- error: {error}")

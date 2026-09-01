@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added `scripts/candidates.py` for recording rejected and deferred search results with canonical reasons, keyed by query and canonical URL; `fetch_source.py --query-id` now records the `opened` candidate automatically.
+- Added `scripts/lineage_suggest.py`, which detects near-duplicate snapshots by word-shingle similarity and, with `--apply`, makes the later source adopt the earlier lineage with an audit trail.
+- The search coverage report now attributes claims to the earliest query that found their support, reports yield per query and trailing zero-yield runs per branch, and marks a branch saturated only after three consecutive zero-yield queries.
+
 - Added a Hearthstone source registry (`references/domains/hearthstone-sources.json`) with official, statistics, structured-data, community, creator, and Chinese venues, plus `scripts/registry_seed.py`, which plans direct opens by game mode before any search-engine query; the search coverage report now shows the share of sources from known venues and warns when fewer than two official or statistics hosts were used or when sources fall outside the registry.
 - Added a machine-readable Hearthstone patch timeline (`references/domains/hearthstone-patches.json`) and `scripts/freshness_check.py`, which verifies the declared client patch against the latest entry for the run's mode, rejects unknown patch versions, and flags sources that predate the latest patch without a stale, historical, or version-compatible label.
 - `plan_queries.py` now defaults to English and Russian templates for Hearthstone runs and reads `client_patch` and balance-patch keys from `current_context`; `exact_excerpt` may elide words with `...` when every fragment appears in order.
