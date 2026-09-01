@@ -90,9 +90,15 @@ Possible expansions:
 
 Do not repeat equivalent queries unless a new date/version, source family, language, or disconfirming frame makes them materially different.
 
+## Generated query matrix
+
+Do not hand-write one query per branch. In a persistent run, generate the matrix with `scripts/plan_queries.py RUN_DIRECTORY --language en --language ru --entity NAME --apply` after the sections and version markers are known. It expands every branch across the canonical families for the run depth, skips queries already in `queries.jsonl`, and writes `query-plan.jsonl`. Execute planned queries in priority order, record each in `queries.jsonl` with the canonical `pass`, `family`, and `language`, and log every seen result in `candidates.jsonl` with an `opened` or `rejected` decision and a canonical reason. Open pages with `scripts/fetch_source.py` so the snapshot, fingerprint, canonical URL, and query link are recorded automatically.
+
 ## Coverage log
 
-For deep or exhaustive research, track each material branch with:
+Run `scripts/search_coverage.py RUN_DIRECTORY` after every pass and `--strict` before the final audit. It reports families per branch, planned-but-unexecuted queries, candidate open rate, host and lineage concentration, challenge coverage for critical and material claims, and fingerprint coverage. A missing required family on a material branch or a critical claim without a challenge search is a blocking finding.
+
+For deep or exhaustive research, the report replaces a hand-kept log of each material branch:
 
 - query families attempted;
 - useful and rejected source IDs;

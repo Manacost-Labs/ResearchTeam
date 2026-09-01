@@ -11,6 +11,13 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+
+from search_support import (
+    CANDIDATE_DECISIONS,
+    CANDIDATE_REJECT_REASONS,
+    QUERY_FAMILIES,
+    QUERY_PASSES,
+)
 from urllib.parse import unquote_plus, urlsplit, urlunsplit
 
 from validate_editor_output import (
@@ -559,6 +566,36 @@ def validate_routed_record_artifact(
             )
 
 
+def validate_candidates(
+    root: Path, query_ids: set[str], source_ids: set[str], errors: list[str]
+) -> None:
+    """Validate the optional candidates.jsonl ledger of seen search results."""
+
+    path = root / "candidates.jsonl"
+    if not path.is_file():
+        return
+    candidates = load_jsonl(path, errors)
+    collect_ids(candidates, "candidate_id", "CAN-", "candidates.jsonl", errors)
+    for record in candidates:
+        label = f"candidates.jsonl:{record['__line__']}"
+        require_fields(record, ("query_id", "url", "decision"), label, errors)
+        query_id = record.get("query_id")
+        if isinstance(query_id, str) and query_id and query_id not in query_ids:
+            errors.append(f"{label}: unknown query {query_id}")
+        decision = record.get("decision")
+        if not string_in(decision, CANDIDATE_DECISIONS):
+            errors.append(f"{label}: invalid decision")
+            continue
+        if decision == "rejected" and not string_in(
+            record.get("reason"), CANDIDATE_REJECT_REASONS
+        ):
+            errors.append(f"{label}: rejected candidate needs a canonical reason")
+        if decision == "opened":
+            source_id = record.get("source_id")
+            if not string_in(source_id, source_ids):
+                errors.append(f"{label}: opened candidate must reference a known source_id")
+
+
 def main() -> int:
     args = parse_args()
     root = Path(args.directory).expanduser().resolve()
@@ -846,6 +883,17 @@ def main() -> int:
             query_id = record.get("query_id")
             if isinstance(query_id, str):
                 query_sections_by_id[query_id] = set(linked_sections)
+        family = record.get("family")
+        if isinstance(family, str) and family and family not in QUERY_FAMILIES:
+            warnings.append(
+                f"{label}: non-canonical query family {family!r}; "
+                "search coverage cannot count it toward a branch"
+            )
+        pass_value = record.get("pass")
+        if isinstance(pass_value, str) and pass_value and pass_value not in QUERY_PASSES:
+            warnings.append(f"{label}: non-canonical query pass {pass_value!r}")
+
+    validate_candidates(root, query_ids, source_ids, errors)
 
     for record in sources:
         label = f"sources.jsonl:{record['__line__']}"

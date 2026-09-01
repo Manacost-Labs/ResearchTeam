@@ -19,6 +19,10 @@ python3 scripts/validate_research_run.py RUN_DIRECTORY --stage final
 
 python3 scripts/fingerprint_research_sources.py RUN_DIRECTORY --apply
 python3 scripts/migrate_research_bundle.py LEGACY_RUN --apply
+
+python3 scripts/plan_queries.py RUN_DIRECTORY --language en --language ru --apply
+python3 scripts/fetch_source.py RUN_DIRECTORY URL --source-type official --query-id QRY-0001 --apply
+python3 scripts/search_coverage.py RUN_DIRECTORY --strict
 ```
 
 The initializer refuses to overwrite a non-empty directory.
@@ -31,6 +35,8 @@ research-run/
 ├── plan.json               # new editor-ready coverage contract only
 ├── snapshots/              # optional preserved inspected content
 ├── migration-backups/      # created only by applied migrations
+├── query-plan.jsonl        # optional planned query matrix from plan_queries.py
+├── candidates.jsonl        # optional ledger of seen search results and decisions
 ├── queries.jsonl
 ├── sources.jsonl
 ├── evidence.jsonl
@@ -111,11 +117,25 @@ Schema `1.0` remains readable for legacy validation. New runs use `1.1`. The mig
 
 `query_id`, `pass`, `family`, `query`, `executed_at`, `status`, and optional `result_source_ids`. Under the editor-ready coverage contract, also include a non-empty `deliverable_section_ids` list.
 
+Use canonical values so search coverage can be measured. `pass` is one of `discovery`, `collection`, `gap`, `contradiction`, `freshness`, or `audit`. `family` is one of `general`, `primary`, `statistics`, `experts`, `reddit`, `x`, `youtube`, `mistakes`, `synergies`, `counterargument`, `freshness`, or `localized`. Record `language` as an ISO code. The validator warns on non-canonical values, and `search_coverage.py` cannot count such a query toward any branch. `plan_queries.py` emits records that already follow this contract.
+
+### Query plan
+
+`query-plan.jsonl` is written by `plan_queries.py` and holds planned records with `status: planned` and `planned_at`. It is not an executed ledger. When a planned query runs, copy it into `queries.jsonl` with `executed_at`, the real `status`, and `result_source_ids`. `search_coverage.py` reports planned queries that were never executed.
+
+### Candidate
+
+`candidates.jsonl` makes rejected search results visible. Each record has `candidate_id` (`CAN-0001`), `query_id`, `url`, `decision` (`opened`, `rejected`, or `deferred`), optional `rank`, `title`, and `snippet_sha256`. A `rejected` record needs a canonical `reason`: `duplicate_lineage`, `off_topic`, `stale_version`, `low_authority`, `snippet_only`, `paywalled`, `login_required`, `unavailable`, `wrong_mode`, `wrong_language`, `already_saturated`, or `other`. An `opened` record must reference the resulting `source_id`. The validator checks these references when the file exists.
+
+### Challenge search
+
+A critical or material claim without `challenging_evidence_ids` should carry `challenge_search: {"query_ids": [...], "result": "none_found"}` naming the contradiction-pass queries that looked for disconfirming evidence. `search_coverage.py` treats a critical claim with neither as a blocking finding.
+
 ### Source
 
 Schema `1.1` requires `source_id`, `title`, `requested_url`, `final_url`, `accessed_at`, `access_integrity`, `source_type`, `lineage_id`, `mutable`, and `fingerprint_status`.
 
-For `verified`, also record `snapshot_path`, `content_sha256`, `content_bytes`, and `fingerprinted_at`. The validator recalculates the hash. For `unavailable` or `exempt`, record `fingerprint_reason`. Never preserve authenticated pages, private session data, paywalled content without permission, or copyrighted material beyond what the research task permits.
+For `verified`, also record `snapshot_path`, `content_sha256`, `content_bytes`, and `fingerprinted_at`. The validator recalculates the hash. `fetch_source.py` produces a verified record, the snapshot, an optional `canonical_url`, and a derived `lineage_id` in one step; pass `--lineage` when the page reposts a known upstream origin, and `--file` to ingest a page already saved by the host tool. For `unavailable` or `exempt`, record `fingerprint_reason`. Never preserve authenticated pages, private session data, paywalled content without permission, or copyrighted material beyond what the research task permits.
 
 ### Evidence
 

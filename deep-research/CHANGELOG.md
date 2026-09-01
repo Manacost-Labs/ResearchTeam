@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added measurable search coverage: canonical query `pass`/`family`/`language` values, an optional `candidates.jsonl` ledger of seen-and-rejected results with canonical reasons, a `challenge_search` claim field, and `scripts/search_coverage.py`, which reports families per branch, unexecuted planned queries, candidate open rate, host and lineage concentration, challenge coverage, and fingerprint coverage with a `--strict` gate.
+- Added `scripts/plan_queries.py`, a deterministic query-matrix generator that expands plan sections or topics across families, English and Russian templates, entities, and version markers into `query-plan.jsonl` without duplicating executed queries.
+- Added `scripts/fetch_source.py`, which fetches a public page without credentials, extracts readable text, stores the snapshot, verifies the SHA-256 fingerprint, derives a canonical URL and lineage hint, refuses duplicates, and links the source to the query that found it; `--file` ingests a page saved by the host tool.
+- The bundle validator now warns on non-canonical query families and passes and validates `candidates.jsonl` references when present.
+
 - Added additive editor-ready coverage contract `1.0`: stable `plan.json` sections; section links on queries, evidence, claims, and community records; output destinations only on evidence, claims, and community records; mandatory section-organized `useful-data.md` banks for `deep` and `exhaustive` runs; reader-visible IDs that cannot be satisfied through code, link destinations, HTML attributes, comments, or hidden HTML; substantive prose beyond link labels and inline code; evidence-matched visible-source checks; critical/material-main and covered-section support invariants; full manifest/plan/all-ledger/report/applicable-artifact hashing; present quick-bank validation; and backward compatibility for existing schema 1.1 bundles.
 - Added outline-first guide planning: the Skill now shows a concise search structure before research, maps every future section to evidence requirements, and continues without an unnecessary approval pause.
 - Added `creator-heavy` routing and high-emphasis, section-level X and YouTube passes for strategy guides, with independent-creator comparison, timestamps, freshness checks, and saturation limits.

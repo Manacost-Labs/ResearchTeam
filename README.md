@@ -238,6 +238,18 @@ python3 deep-research/scripts/init_research_run.py /path/to/run \
   --output-profile raw-research \
   --modifier current-patch-only
 
+# Generate the query matrix for every section, in English and Russian
+python3 deep-research/scripts/plan_queries.py /path/to/run \
+  --language en --language ru --version-marker 36.4 --apply
+
+# Open a page with an automatic snapshot, fingerprint, and query link
+python3 deep-research/scripts/fetch_source.py /path/to/run \
+  https://hearthstone.blizzard.com/en-us/news/24293284 \
+  --source-type official --query-id QRY-0001 --apply
+
+# Measure search completeness before the audit
+python3 deep-research/scripts/search_coverage.py /path/to/run --strict
+
 # Continue from recorded evidence gaps
 python3 deep-research/scripts/research_ops.py resume /path/to/run
 

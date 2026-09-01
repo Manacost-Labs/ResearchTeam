@@ -98,7 +98,7 @@ Run an evidence-availability gate early for every required evidence class. If bo
 
 After each major pass record: `WHAT WE KNOW`, `WHAT WE THINK`, `WHAT IS CONTESTED`, `WHAT WE DON'T KNOW`, and `WHAT NEEDS MORE EVIDENCE`. Search again only for named gaps.
 
-In a persistent run, checkpoint the query, source, evidence, and claim ledgers after each pass so the work can be resumed without silently changing provenance.
+In a persistent run, generate the query matrix with `scripts/plan_queries.py` before the first pass, open pages with `scripts/fetch_source.py`, record seen-but-rejected results in `candidates.jsonl`, and run `scripts/search_coverage.py` after each pass. Checkpoint the query, source, evidence, and claim ledgers after each pass so the work can be resumed without silently changing provenance.
 
 Record important sources with [source-record.md](references/templates/source-record.md). Search snippets, AI summaries, aggregators, and reposts may locate evidence but cannot replace inspection of the original.
 
@@ -143,7 +143,7 @@ After the factual audit passes, choose exactly one synthesis route:
 
 The Clarity Editor may simplify structure and language, but it must not add, strengthen, merge, or delete material claims; change numbers, scope, citations, confidence, or limitations; or hide meaningful disagreement. It must lead with the answer, keep one main idea per section, translate internal research language into ordinary language, and place necessary uncertainty beside the affected claim. Each routed bank or appendix record must remain visible by ID outside fenced or indented code, contain substantive ordinary Markdown text beyond its link label, and link directly to the inspected source connected through its evidence. `useful-data.md` is mandatory at `deep` and `exhaustive`; if it is created for a `quick` run, it is still validated and frozen in the final review. When an `editor-ready` Markdown file is produced locally, run `scripts/validate_editor_output.py FILE` and revise blocking failures before delivery. Research output is source material, not automatically an SEO article or final editorial draft.
 
-Before final handoff of a file-backed run, execute `scripts/validate_research_run.py RUN_DIRECTORY --stage final`. A failed integrity check blocks “ready” status even when the prose looks complete. Use [handoff.md](references/templates/handoff.md) to communicate the delivery boundary.
+Before final handoff of a file-backed run, execute `scripts/search_coverage.py RUN_DIRECTORY --strict` and `scripts/validate_research_run.py RUN_DIRECTORY --stage final`. A failed integrity check blocks “ready” status even when the prose looks complete. Use [handoff.md](references/templates/handoff.md) to communicate the delivery boundary.
 
 ## Completion conditions
 
