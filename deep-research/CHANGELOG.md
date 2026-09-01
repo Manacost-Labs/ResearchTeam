@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added bundle schema 1.2 (search integrity): canonical query `pass`/`family` values become errors, queries carry a `language`, an `exact_excerpt` is verified against the source snapshot, final validation requires verified excerpt anchors for critical/material evidence with snapshots and a `challenge_search` or challenging evidence for every critical claim, and `output_profile` is mandatory. New bundles initialize at 1.2; 1.1 bundles stay valid and upgrade through `migrate_research_bundle.py --to 1.2 --family-map`, which refuses to guess unmapped families and is reversible.
+- The search coverage report now measures anchor coverage: evidence with a snapshot whose excerpt was found in it.
+
 - Added measurable search coverage: canonical query `pass`/`family`/`language` values, an optional `candidates.jsonl` ledger of seen-and-rejected results with canonical reasons, a `challenge_search` claim field, and `scripts/search_coverage.py`, which reports families per branch, unexecuted planned queries, candidate open rate, host and lineage concentration, challenge coverage, and fingerprint coverage with a `--strict` gate.
 - Added `scripts/plan_queries.py`, a deterministic query-matrix generator that expands plan sections or topics across families, English and Russian templates, entities, and version markers into `query-plan.jsonl` without duplicating executed queries.
 - Added `scripts/fetch_source.py`, which fetches a public page without credentials, extracts readable text, stores the snapshot, verifies the SHA-256 fingerprint, derives a canonical URL and lineage hint, refuses duplicates, and links the source to the query that found it; `--file` ingests a page saved by the host tool.

@@ -90,7 +90,7 @@ def main() -> int:
     timestamp = now.isoformat().replace("+00:00", "Z")
 
     manifest = {
-        "schema_version": "1.1",
+        "schema_version": "1.2",
         "research_id": research_id,
         "main_question": question,
         "created_at": timestamp,

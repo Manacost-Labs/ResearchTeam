@@ -43,4 +43,6 @@ quality_notes:
 
 Leave irrelevant statistical fields blank. Do not infer a missing denominator or sample size.
 
+In schema 1.2, `exact_excerpt` is the verifiable anchor: at least four words copied verbatim from the inspected source. The validator looks for it in the source snapshot and rejects the evidence when it is absent; at final stage every supporting evidence item of a critical or material claim with a snapshotted source must carry one. Keep excerpts short and within the web-safety limits.
+
 The coverage fields apply only when `manifest.json` enables `coverage_contract_version: "1.0"`. `omit` requires `output_omit_reason`. `useful_data` requires one or more of `number`, `comparison`, `advice`, `sequence`, `example`, `mistake`, `exception`, `deck_code`, `x_insight`, or `youtube_segment`.

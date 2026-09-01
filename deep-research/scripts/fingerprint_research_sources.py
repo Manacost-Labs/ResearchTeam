@@ -60,8 +60,8 @@ def main() -> int:
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    if manifest.get("schema_version") != "1.1":
-        print("error: fingerprinting requires schema 1.1", file=sys.stderr)
+    if manifest.get("schema_version") not in {"1.1", "1.2"}:
+        print("error: fingerprinting requires schema 1.1 or 1.2", file=sys.stderr)
         return 2
 
     verified = 0

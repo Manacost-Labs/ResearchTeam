@@ -60,7 +60,7 @@ Newly initialized bundles include:
 
 ```json
 {
-  "schema_version": "1.1",
+  "schema_version": "1.2",
   "research_id": "RES-...",
   "main_question": "...",
   "created_at": "ISO-8601 UTC",
@@ -109,7 +109,15 @@ Section IDs are stable and must not be renumbered when prose headings change. At
 
 For `editor-ready`, `audit.json` also records a post-edit `clarity_review`. Its status can become `pass` only after an item-by-item comparison confirms that material claims, numbers, scope, citations, limitations, and contradictions survived the Clarity Editor pass. Record `reviewed_at` as an ISO-8601 timestamp, list all reviewed critical/material claims in `reviewed_claim_ids`, and store exact SHA-256 values for `report.md`, `claims.jsonl`, and `sources.jsonl`. This freezes the reviewed artifacts: editing any of them invalidates the final gate. This is a semantic review record, not a claim that the deterministic readability checker can understand meaning.
 
-Schema `1.0` remains readable for legacy validation. New runs use `1.1`. The migration tool upgrades schema `1.0` and can also backfill a matching `output_profile` in the manifest and handoff of an early schema `1.1` bundle. It refuses conflicting or duplicate handoff values. Run it without `--apply` first; applying creates a timestamped backup of `manifest.json`, `sources.jsonl`, and `handoff.md` under `migration-backups/`, and `--rollback BACKUP_DIRECTORY` restores the protected files.
+Schema `1.0` remains readable for legacy validation. Schema `1.1` bundles remain valid. New runs use `1.2`, which keeps the whole 1.1 provenance contract and adds search integrity:
+
+- every query uses a canonical `pass` and `family` (an error, not a warning) and should record a `language`;
+- an `exact_excerpt` on evidence must contain at least four words and, when the source has a verified snapshot, must be found in that snapshot after whitespace, case, quote, and dash normalization;
+- at final stage, every supporting evidence item of a critical or material claim whose source has a verified snapshot needs a verified `exact_excerpt`;
+- at final stage, every non-rejected critical claim needs `challenging_evidence_ids` or a `challenge_search` record whose `query_ids` exist and whose `result` is `none_found`, `found_weak`, or `found`; material claims receive a warning;
+- `output_profile` is mandatory.
+
+Upgrade a 1.1 bundle with `migrate_research_bundle.py RUN --to 1.2 --family-map MAP.json --apply`. The map translates free-text families and passes to canonical values and the migration refuses to guess; legacy values are preserved in `legacy_family` and `legacy_pass`. The backup includes `queries.jsonl` and `--rollback` restores it. The migration tool upgrades schema `1.0` and can also backfill a matching `output_profile` in the manifest and handoff of an early schema `1.1` bundle. It refuses conflicting or duplicate handoff values. Run it without `--apply` first; applying creates a timestamped backup of `manifest.json`, `sources.jsonl`, and `handoff.md` under `migration-backups/`, and `--rollback BACKUP_DIRECTORY` restores the protected files.
 
 ## Minimum ledger contracts
 

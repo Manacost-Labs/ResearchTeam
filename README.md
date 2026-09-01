@@ -227,7 +227,7 @@ The resolver also supports timewarped cards, anomalies, Dark Gifts, quests, Dark
 
 ## Persistent professional workflow
 
-For exhaustive, resumable, or cross-Skill work, create a schema 1.1 research bundle:
+For exhaustive, resumable, or cross-Skill work, create a schema 1.2 research bundle:
 
 ```bash
 # Initialize without overwriting a non-empty directory

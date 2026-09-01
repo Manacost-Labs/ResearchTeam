@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Migrate schema 1.0 bundles and backfill legacy schema 1.1 profiles."""
+"""Migrate schema 1.0 bundles, backfill legacy schema 1.1 profiles, and upgrade 1.1 to 1.2.
+
+The 1.2 upgrade requires canonical query passes and families. Provide a JSON
+map file with ``{"families": {...}, "passes": {...}}`` that translates the
+bundle's free-text values; the migration refuses to guess an unmapped value.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from search_support import QUERY_FAMILIES, QUERY_PASSES
+
 
 MIGRATED_FILES = ("manifest.json", "sources.jsonl", "handoff.md")
 SEMANTIC_LEDGER = "semantic-audit.jsonl"
@@ -26,6 +33,16 @@ def parse_args() -> argparse.Namespace:
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--apply", action="store_true", help="Apply migration")
     group.add_argument("--rollback", help="Restore an explicit migration backup directory")
+    parser.add_argument(
+        "--to", choices=("1.1", "1.2"), default="1.1", help="Target schema version"
+    )
+    parser.add_argument(
+        "--family-map",
+        help="JSON file mapping free-text query families and passes to canonical values",
+    )
+    parser.add_argument(
+        "--default-language", default="en", help="Language recorded on queries without one"
+    )
     return parser.parse_args()
 
 
@@ -127,6 +144,9 @@ def rollback(root: Path, backup_arg: str) -> int:
             return 2
     for name in MIGRATED_FILES:
         shutil.copy2(backup / name, root / name)
+    queries_backup = backup / "queries.jsonl"
+    if queries_backup.is_file():
+        shutil.copy2(queries_backup, root / "queries.jsonl")
     semantic_backup = backup / SEMANTIC_LEDGER
     semantic_marker = backup / ".semantic-audit-was-absent"
     if semantic_backup.is_file():
@@ -134,6 +154,106 @@ def rollback(root: Path, backup_arg: str) -> int:
     elif semantic_marker.is_file():
         (root / SEMANTIC_LEDGER).unlink(missing_ok=True)
     print(f"Rolled back research bundle from: {backup}")
+    return 0
+
+
+def load_family_map(path: str | None) -> tuple[dict[str, str], dict[str, str]]:
+    if not path:
+        return {}, {}
+    value = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("family map must be an object")
+    families = value.get("families", {})
+    passes = value.get("passes", {})
+    if not isinstance(families, dict) or not isinstance(passes, dict):
+        raise ValueError("family map needs 'families' and 'passes' objects")
+    for target in families.values():
+        if target not in QUERY_FAMILIES:
+            raise ValueError(f"family map targets unknown family {target!r}")
+    for target in passes.values():
+        if target not in QUERY_PASSES:
+            raise ValueError(f"family map targets unknown pass {target!r}")
+    return {str(k): str(v) for k, v in families.items()}, {str(k): str(v) for k, v in passes.items()}
+
+
+def migrate_to_12(root: Path, manifest: dict[str, Any], args: argparse.Namespace) -> int:
+    """Upgrade a schema 1.1 bundle to 1.2 with canonical query taxonomy."""
+
+    if "output_profile" not in manifest or manifest.get("output_profile") not in OUTPUT_PROFILES:
+        print("error: backfill output_profile (schema 1.1 migration) before upgrading to 1.2", file=sys.stderr)
+        return 2
+    try:
+        queries = load_jsonl(root / "queries.jsonl")
+        family_map, pass_map = load_family_map(args.family_map)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    unmapped_families: set[str] = set()
+    unmapped_passes: set[str] = set()
+    migrated: list[dict[str, Any]] = []
+    changed_queries = 0
+    for record in queries:
+        item = dict(record)
+        family = str(item.get("family", ""))
+        if family not in QUERY_FAMILIES:
+            if family in family_map:
+                item["legacy_family"] = family
+                item["family"] = family_map[family]
+            else:
+                unmapped_families.add(family)
+        pass_value = str(item.get("pass", ""))
+        if pass_value not in QUERY_PASSES:
+            if pass_value in pass_map:
+                item["legacy_pass"] = pass_value
+                item["pass"] = pass_map[pass_value]
+            else:
+                unmapped_passes.add(pass_value)
+        if not item.get("language"):
+            item["language"] = args.default_language
+        if item != record:
+            changed_queries += 1
+        migrated.append(item)
+    if unmapped_families or unmapped_passes:
+        print("error: schema 1.2 needs canonical query values; add these to --family-map:", file=sys.stderr)
+        for value in sorted(unmapped_families):
+            print(f"  family: {value!r}", file=sys.stderr)
+        for value in sorted(unmapped_passes):
+            print(f"  pass: {value!r}", file=sys.stderr)
+        return 1
+
+    print(
+        f"Migration preview: schema 1.1 -> 1.2; {changed_queries} of {len(queries)} query "
+        f"records updated; apply={args.apply}"
+    )
+    print(
+        "Note: 1.2 final validation also requires exact_excerpt anchors for evidence with "
+        "snapshots and a challenge_search or challenging evidence on critical claims; "
+        "record those before final."
+    )
+    if not args.apply:
+        return 0
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup = root / "migration-backups" / f"{stamp}-schema-1.1-to-1.2"
+    backup.mkdir(parents=True, exist_ok=False)
+    for name in MIGRATED_FILES + ("queries.jsonl",):
+        shutil.copy2(root / name, backup / name)
+    if (root / SEMANTIC_LEDGER).is_file():
+        shutil.copy2(root / SEMANTIC_LEDGER, backup / SEMANTIC_LEDGER)
+    else:
+        (backup / ".semantic-audit-was-absent").touch()
+
+    migrated_manifest = dict(manifest)
+    migrated_manifest["schema_version"] = "1.2"
+    migrated_manifest["updated_at"] = utc_now()
+    provenance = dict(migrated_manifest.get("provenance", {}))
+    provenance["migrated_from"] = "1.1"
+    migrated_manifest["provenance"] = provenance
+    atomic_write(root / "manifest.json", serialize_json(migrated_manifest))
+    atomic_write(root / "queries.jsonl", serialize_jsonl(migrated))
+    print("Applied schema 1.1 -> 1.2")
+    print(f"Rollback backup: {backup}")
     return 0
 
 
@@ -155,6 +275,11 @@ def main() -> int:
         return 2
 
     version = manifest.get("schema_version")
+    if args.to == "1.2":
+        if version != "1.1":
+            print("error: schema 1.2 upgrade requires a schema 1.1 bundle", file=sys.stderr)
+            return 2
+        return migrate_to_12(root, manifest, args)
     if version not in {"1.0", "1.1"}:
         print(f"error: unsupported source schema {version}", file=sys.stderr)
         return 2

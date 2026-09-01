@@ -316,8 +316,8 @@ def main(argv: list[str] | None = None, *, transport: Transport | None = None) -
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    if manifest.get("schema_version") != "1.1":
-        print("error: fetch_source requires a schema 1.1 bundle", file=sys.stderr)
+    if manifest.get("schema_version") not in {"1.1", "1.2"}:
+        print("error: fetch_source requires a schema 1.1 or 1.2 bundle", file=sys.stderr)
         return 2
 
     try:

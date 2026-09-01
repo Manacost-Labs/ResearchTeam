@@ -22,6 +22,7 @@ COVERAGE = SCRIPTS / "search_coverage.py"
 FETCH = SCRIPTS / "fetch_source.py"
 VALIDATE = SCRIPTS / "validate_research_run.py"
 FINGERPRINT = SCRIPTS / "fingerprint_research_sources.py"
+MIGRATE = SCRIPTS / "migrate_research_bundle.py"
 sys.path.insert(0, str(SCRIPTS))
 
 import fetch_source  # noqa: E402
@@ -212,7 +213,12 @@ class PlanQueriesTest(unittest.TestCase):
 
 class SearchCoverageTest(unittest.TestCase):
     def build_bundle(self, run_dir: Path) -> None:
+        """A legacy schema 1.1 bundle: free-text families are warnings, not errors."""
+
         init_bundle(run_dir, depth="quick")
+        manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+        manifest["schema_version"] = "1.1"
+        (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
         write_jsonl(
             run_dir / "queries.jsonl",
             [
@@ -425,3 +431,146 @@ class FetchSourceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Schema12Test(unittest.TestCase):
+    """Schema 1.2 search-integrity rules: canonical queries, excerpt anchors, challenge quota."""
+
+    def build(self, run_dir: Path) -> None:
+        init_bundle(run_dir, depth="quick")
+        manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["schema_version"], "1.2")
+        write_jsonl(
+            run_dir / "queries.jsonl",
+            [
+                executed_query("QRY-0001", "primary", "Dark Gift official", ["SRC-0001"]),
+                {**executed_query("QRY-0002", "counterargument", "why not Dark Gift", []), "pass": "contradiction"},
+            ],
+        )
+        write_jsonl(
+            run_dir / "sources.jsonl",
+            [source("SRC-0001", "https://hearthstone.blizzard.com/news/1", "LIN-A", verified=True, run_dir=run_dir)],
+        )
+        write_jsonl(
+            run_dir / "evidence.jsonl",
+            [{"evidence_id": "EVD-0001", "source_id": "SRC-0001", "claim_ids": ["CLM-0001"], "relationship": "supporting", "locator": "p1", "evidence_type": "fact", "faithful_paraphrase": "x", "exact_excerpt": "Source: SRC-0001 URL: https://hearthstone.blizzard.com/news/1"}],
+        )
+        write_jsonl(
+            run_dir / "claims.jsonl",
+            [{"claim_id": "CLM-0001", "claim": "critical thing", "importance": "critical", "status": "supported", "confidence": "HIGH", "supporting_evidence_ids": ["EVD-0001"], "challenging_evidence_ids": [], "challenge_search": {"query_ids": ["QRY-0002"], "result": "none_found"}}],
+        )
+
+    def test_anchored_and_challenged_bundle_passes_working(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp) / "run"
+            self.build(run_dir)
+            result = run(VALIDATE, str(run_dir), "--stage", "working")
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertNotIn("exact_excerpt", result.stdout)
+            self.assertNotIn("challenge", result.stdout)
+            report = search_coverage.analyze(run_dir)
+            self.assertEqual(report["anchors"]["anchor_coverage"], 1.0)
+
+    def test_excerpt_not_in_snapshot_is_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp) / "run"
+            self.build(run_dir)
+            evidence = read_jsonl(run_dir / "evidence.jsonl")
+            evidence[0]["exact_excerpt"] = "this sentence does not appear in the snapshot"
+            write_jsonl(run_dir / "evidence.jsonl", evidence)
+            result = run(VALIDATE, str(run_dir), "--stage", "working")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("exact_excerpt not found in snapshot of SRC-0001", result.stdout)
+            evidence[0]["exact_excerpt"] = "Source: SRC"
+            write_jsonl(run_dir / "evidence.jsonl", evidence)
+            result = run(VALIDATE, str(run_dir), "--stage", "working")
+            self.assertIn("needs at least 4 words", result.stdout)
+
+    def test_missing_anchor_and_challenge_block_final_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp) / "run"
+            self.build(run_dir)
+            evidence = read_jsonl(run_dir / "evidence.jsonl")
+            del evidence[0]["exact_excerpt"]
+            write_jsonl(run_dir / "evidence.jsonl", evidence)
+            claims = read_jsonl(run_dir / "claims.jsonl")
+            del claims[0]["challenge_search"]
+            write_jsonl(run_dir / "claims.jsonl", claims)
+            working = run(VALIDATE, str(run_dir), "--stage", "working")
+            self.assertEqual(working.returncode, 0, working.stdout)
+            self.assertIn("warning: claims.jsonl:1: critical claim has no challenging evidence", working.stdout)
+            self.assertIn("warning: claims.jsonl:1: supporting evidence without a verified exact_excerpt", working.stdout)
+            final = run(VALIDATE, str(run_dir), "--stage", "final")
+            self.assertEqual(final.returncode, 1)
+            self.assertIn("- claims.jsonl:1: critical claim has no challenging evidence", final.stdout)
+            self.assertIn("- claims.jsonl:1: supporting evidence without a verified exact_excerpt", final.stdout)
+
+    def test_challenge_search_references_are_checked(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp) / "run"
+            self.build(run_dir)
+            claims = read_jsonl(run_dir / "claims.jsonl")
+            claims[0]["challenge_search"] = {"query_ids": ["QRY-0099"], "result": "maybe"}
+            write_jsonl(run_dir / "claims.jsonl", claims)
+            result = run(VALIDATE, str(run_dir), "--stage", "working")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("references unknown query QRY-0099", result.stdout)
+            self.assertIn("challenge_search result is invalid", result.stdout)
+
+    def test_non_canonical_query_values_are_errors_in_12(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp) / "run"
+            self.build(run_dir)
+            queries = read_jsonl(run_dir / "queries.jsonl")
+            queries[0]["family"] = "Polish law"
+            queries[0]["pass"] = "primary-source"
+            del queries[0]["language"]
+            write_jsonl(run_dir / "queries.jsonl", queries)
+            result = run(VALIDATE, str(run_dir), "--stage", "working")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("- queries.jsonl:1: non-canonical query family 'Polish law'", result.stdout)
+            self.assertIn("- queries.jsonl:1: non-canonical query pass 'primary-source'", result.stdout)
+            self.assertIn("warning: queries.jsonl:1: schema 1.2 query should record a language", result.stdout)
+
+    def test_migration_from_11_to_12_needs_family_map_and_is_reversible(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp) / "run"
+            self.build(run_dir)
+            manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+            manifest["schema_version"] = "1.1"
+            (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            queries = read_jsonl(run_dir / "queries.jsonl")
+            queries[0]["family"] = "Polish law"
+            queries[0]["pass"] = "primary-source"
+            del queries[0]["language"]
+            write_jsonl(run_dir / "queries.jsonl", queries)
+            self.assertEqual(run(VALIDATE, str(run_dir), "--stage", "working").returncode, 0)
+
+            refused = run(MIGRATE, str(run_dir), "--to", "1.2")
+            self.assertEqual(refused.returncode, 1)
+            self.assertIn("family: 'Polish law'", refused.stderr)
+            self.assertIn("pass: 'primary-source'", refused.stderr)
+
+            mapping = Path(temp) / "map.json"
+            mapping.write_text(json.dumps({"families": {"Polish law": "primary"}, "passes": {"primary-source": "collection"}}), encoding="utf-8")
+            preview = run(MIGRATE, str(run_dir), "--to", "1.2", "--family-map", str(mapping))
+            self.assertEqual(preview.returncode, 0, preview.stderr)
+            self.assertEqual(json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))["schema_version"], "1.1")
+
+            applied = run(MIGRATE, str(run_dir), "--to", "1.2", "--family-map", str(mapping), "--apply")
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            migrated = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(migrated["schema_version"], "1.2")
+            self.assertEqual(migrated["provenance"]["migrated_from"], "1.1")
+            queries = read_jsonl(run_dir / "queries.jsonl")
+            self.assertEqual(queries[0]["family"], "primary")
+            self.assertEqual(queries[0]["legacy_family"], "Polish law")
+            self.assertEqual(queries[0]["pass"], "collection")
+            self.assertEqual(queries[0]["language"], "en")
+            self.assertEqual(run(VALIDATE, str(run_dir), "--stage", "working").returncode, 0)
+
+            backup = next((run_dir / "migration-backups").iterdir())
+            rolled = run(MIGRATE, str(run_dir), "--rollback", str(backup))
+            self.assertEqual(rolled.returncode, 0, rolled.stderr)
+            self.assertEqual(json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))["schema_version"], "1.1")
+            self.assertEqual(read_jsonl(run_dir / "queries.jsonl")[0]["family"], "Polish law")

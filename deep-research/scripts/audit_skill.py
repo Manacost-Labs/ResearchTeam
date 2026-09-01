@@ -82,6 +82,7 @@ REQUIRED = {
     "references/examples/gaming-research.md",
     "references/examples/general-research.md",
     "references/examples/chinese-hearthstone-config.json",
+    "references/examples/family-map-hearthstone.json",
     "tests/fixtures/chinese/17173_multi_deck.html",
     "tests/fixtures/chinese/bilibili_video.json",
     "tests/fixtures/chinese/gamersky_repost.html",

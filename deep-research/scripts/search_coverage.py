@@ -25,6 +25,7 @@ from search_support import (
     QUERY_FAMILIES,
     QUERY_PASSES,
     normalize_query,
+    quote_in_text,
     url_host,
 )
 
@@ -78,6 +79,7 @@ def ratio(numerator: int, denominator: int) -> float | None:
 
 
 def analyze(root: Path) -> dict[str, Any]:
+    root = root.resolve()
     manifest = load_json(root / "manifest.json")
     plan = load_json(root / "plan.json")
     queries = load_jsonl(root / "queries.jsonl")
@@ -231,6 +233,36 @@ def analyze(root: Path) -> dict[str, Any]:
         else:
             warnings.append(message)
 
+    # --- anchors -----------------------------------------------------------
+    snapshot_text: dict[str, str] = {}
+    for record in sources:
+        source_id = str(record.get("source_id", ""))
+        snapshot_value = record.get("snapshot_path")
+        if record.get("fingerprint_status") == "verified" and isinstance(snapshot_value, str):
+            try:
+                candidate = (root / snapshot_value).resolve()
+                if candidate.is_relative_to(root) and candidate.is_file():
+                    snapshot_text[source_id] = candidate.read_text(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                continue
+    anchorable = 0
+    anchored = 0
+    unanchored_ids: list[str] = []
+    for record in evidence:
+        source_id = str(record.get("source_id", ""))
+        if source_id not in snapshot_text:
+            continue
+        anchorable += 1
+        excerpt = record.get("exact_excerpt")
+        if isinstance(excerpt, str) and excerpt.strip() and quote_in_text(snapshot_text[source_id], excerpt):
+            anchored += 1
+        else:
+            unanchored_ids.append(str(record.get("evidence_id", "?")))
+    if unanchored_ids:
+        warnings.append(
+            f"evidence with a snapshot but no verified exact_excerpt: {', '.join(unanchored_ids)}"
+        )
+
     # --- claims ------------------------------------------------------------
     evidence_by_id = {str(item.get("evidence_id")): item for item in evidence}
     critical_material = [
@@ -343,6 +375,12 @@ def analyze(root: Path) -> dict[str, Any]:
             "access_integrity": dict(integrity_counter),
             "snippet_only": snippet_only,
         },
+        "anchors": {
+            "anchorable_evidence": anchorable,
+            "anchored_evidence": anchored,
+            "anchor_coverage": ratio(anchored, anchorable),
+            "unanchored_ids": unanchored_ids,
+        },
         "claims": {
             "critical_material_total": len(critical_material),
             "with_challenge": with_challenge,
@@ -371,6 +409,8 @@ def format_summary(report: dict[str, Any]) -> str:
         f"- families used: {', '.join(sorted(queries['by_family'])) or 'none'}",
         f"- challenge coverage: {claims['with_challenge']}/{claims['critical_material_total']}",
         f"- fingerprint coverage: {sources['mutable_verified']}/{sources['mutable_total']} mutable",
+        f"- anchor coverage: {report['anchors']['anchored_evidence']}/"
+        f"{report['anchors']['anchorable_evidence']} evidence with snapshots",
     ]
     if report["plan"]["present"]:
         lines.append(

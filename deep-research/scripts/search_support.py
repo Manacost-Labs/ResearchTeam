@@ -180,3 +180,40 @@ def next_id(prefix: str, existing: set[str], width: int = 4) -> str:
         if match:
             highest = max(highest, int(match.group(1)))
     return f"{prefix}-{highest + 1:0{width}d}"
+
+
+MIN_EXCERPT_WORDS = 4
+_MATCH_TRANSLATION = str.maketrans(
+    {
+        "‘": "'",
+        "’": "'",
+        "‚": "'",
+        "“": '"',
+        "”": '"',
+        "„": '"',
+        "«": '"',
+        "»": '"',
+        "–": "-",
+        "—": "-",
+        "−": "-",
+        " ": " ",
+        "­": "",
+        "…": "...",
+    }
+)
+
+
+def normalize_for_match(text: str) -> str:
+    """Normalize text for tolerant substring matching of quotes."""
+
+    translated = text.translate(_MATCH_TRANSLATION).casefold()
+    return _WHITESPACE_RE.sub(" ", translated).strip()
+
+
+def quote_in_text(text: str, quote: str) -> bool:
+    """Return whether ``quote`` appears in ``text`` after normalization."""
+
+    needle = normalize_for_match(quote)
+    if not needle:
+        return False
+    return needle in normalize_for_match(text)

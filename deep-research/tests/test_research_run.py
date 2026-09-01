@@ -103,6 +103,7 @@ def write_minimal_linked_fixture(run: Path) -> None:
                 "confidence": "HIGH",
                 "supporting_evidence_ids": ["EVD-0001"],
                 "challenging_evidence_ids": [],
+                "challenge_search": {"query_ids": ["QRY-0001"], "result": "none_found"},
                 "deliverable_section_ids": ["SEC-0001"],
                 "output_disposition": "main",
             }
@@ -458,6 +459,7 @@ class ResearchRunToolsTest(unittest.TestCase):
             run = self.initialize(Path(temp))
             manifest = json.loads((run / "manifest.json").read_text(encoding="utf-8"))
             manifest.pop("output_profile")
+            manifest["schema_version"] = "1.1"
             write_json(run / "manifest.json", manifest)
             result = subprocess.run(
                 [sys.executable, str(VALIDATE), str(run), "--stage", "working"],
@@ -1709,6 +1711,7 @@ class ResearchRunToolsTest(unittest.TestCase):
                         "confidence": "HIGH",
                         "supporting_evidence_ids": ["EVD-0001"],
                         "challenging_evidence_ids": [],
+                        "challenge_search": {"query_ids": ["QRY-0001"], "result": "none_found"},
                     }
                 ],
             )
@@ -1913,6 +1916,7 @@ class ResearchRunToolsTest(unittest.TestCase):
             run = self.initialize(Path(temp))
             manifest = json.loads((run / "manifest.json").read_text(encoding="utf-8"))
             manifest.pop("output_profile")
+            manifest["schema_version"] = "1.1"
             manifest["modifiers"] = ["raw-research", "current-patch-only"]
             manifest["status"] = "complete"
             write_json(run / "manifest.json", manifest)

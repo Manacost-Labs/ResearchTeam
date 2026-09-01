@@ -15,8 +15,10 @@ from typing import Any
 from search_support import (
     CANDIDATE_DECISIONS,
     CANDIDATE_REJECT_REASONS,
+    MIN_EXCERPT_WORDS,
     QUERY_FAMILIES,
     QUERY_PASSES,
+    quote_in_text,
 )
 from urllib.parse import unquote_plus, urlsplit, urlunsplit
 
@@ -71,7 +73,10 @@ CLAIM_STATUSES = {
 }
 IMPORTANCE_VALUES = {"critical", "material", "supporting", "contextual"}
 CONFIDENCE_VALUES = {"VERY_HIGH", "HIGH", "MEDIUM", "LOW", "SPECULATIVE"}
-SCHEMA_VALUES = {"1.0", "1.1"}
+SCHEMA_VALUES = {"1.0", "1.1", "1.2"}
+# Schema versions that carry the 1.1 provenance contract (1.2 adds search integrity).
+PROVENANCE_SCHEMAS = {"1.1", "1.2"}
+CHALLENGE_RESULT_VALUES = {"none_found", "found_weak", "found"}
 OUTPUT_PROFILE_VALUES = {"editor-ready", "research-report", "raw-research"}
 COVERAGE_CONTRACT_VALUES = {"1.0"}
 SECTION_STATUS_VALUES = {"planned", "researching", "covered", "excluded", "unresolved"}
@@ -625,7 +630,7 @@ def main() -> int:
     contradictions = load_jsonl(root / "contradictions.jsonl", errors)
     checkpoints = load_jsonl(root / "checkpoints.jsonl", errors)
     semantic_audit: list[dict[str, Any]] = []
-    if schema_hint == "1.1":
+    if schema_hint in PROVENANCE_SCHEMAS:
         semantic_path = root / "semantic-audit.jsonl"
         if not semantic_path.is_file():
             errors.append("missing required file: semantic-audit.jsonl")
@@ -663,7 +668,9 @@ def main() -> int:
     modifier_values = modifiers if isinstance(modifiers, list) else []
     if manifest:
         if "output_profile" not in manifest:
-            if schema_version == "1.1":
+            if schema_version == "1.2":
+                errors.append("manifest.json: schema 1.2 requires output_profile")
+            elif schema_version == "1.1":
                 effective_output_profile = (
                     "raw-research"
                     if "raw-research" in modifier_values
@@ -701,7 +708,7 @@ def main() -> int:
     if not isinstance(manifest.get("current_context"), dict):
         errors.append("manifest.json: current_context must be an object")
     fingerprint_policy = "off"
-    if schema_version == "1.1":
+    if schema_version in PROVENANCE_SCHEMAS:
         provenance = manifest.get("provenance")
         if not isinstance(provenance, dict):
             errors.append("manifest.json: schema 1.1 requires provenance object")
@@ -734,8 +741,8 @@ def main() -> int:
         errors.append(
             "manifest.json: coverage contract is only valid for editor-ready output"
         )
-    if coverage_enabled and schema_version != "1.1":
-        errors.append("manifest.json: coverage contract requires schema_version 1.1")
+    if coverage_enabled and schema_version not in PROVENANCE_SCHEMAS:
+        errors.append("manifest.json: coverage contract requires schema_version 1.1 or 1.2")
     if effective_output_profile == "editor-ready" and coverage_contract_version is None:
         warnings.append(
             "manifest.json: legacy editor-ready bundle without coverage contract"
@@ -885,13 +892,17 @@ def main() -> int:
                 query_sections_by_id[query_id] = set(linked_sections)
         family = record.get("family")
         if isinstance(family, str) and family and family not in QUERY_FAMILIES:
-            warnings.append(
+            message = (
                 f"{label}: non-canonical query family {family!r}; "
                 "search coverage cannot count it toward a branch"
             )
+            (errors if schema_version == "1.2" else warnings).append(message)
         pass_value = record.get("pass")
         if isinstance(pass_value, str) and pass_value and pass_value not in QUERY_PASSES:
-            warnings.append(f"{label}: non-canonical query pass {pass_value!r}")
+            message = f"{label}: non-canonical query pass {pass_value!r}"
+            (errors if schema_version == "1.2" else warnings).append(message)
+        if schema_version == "1.2" and not record.get("language"):
+            warnings.append(f"{label}: schema 1.2 query should record a language")
 
     validate_candidates(root, query_ids, source_ids, errors)
 
@@ -904,7 +915,7 @@ def main() -> int:
             "source_type",
             "lineage_id",
         )
-        if schema_version == "1.1":
+        if schema_version in PROVENANCE_SCHEMAS:
             source_fields += (
                 "requested_url",
                 "final_url",
@@ -919,12 +930,12 @@ def main() -> int:
                 ("requested_url", record.get("requested_url")),
                 ("final_url", record.get("final_url")),
             )
-            if schema_version == "1.1"
+            if schema_version in PROVENANCE_SCHEMAS
             else (("url", record.get("url")),)
         )
         for field, url in urls:
             url_text = str(url or "")
-            if schema_version == "1.1" and url_text and citation_identity(url_text) is None:
+            if schema_version in PROVENANCE_SCHEMAS and url_text and citation_identity(url_text) is None:
                 errors.append(f"{label}: invalid {field}")
             elif url_text.startswith(("https://", "http://")):
                 if citation_identity(url_text) is None:
@@ -933,7 +944,7 @@ def main() -> int:
                 warnings.append(f"{label}: URL is not HTTP(S)")
         if record.get("accessed_at"):
             validate_timestamp(record.get("accessed_at"), f"{label}:accessed_at", errors)
-        if schema_version == "1.1":
+        if schema_version in PROVENANCE_SCHEMAS:
             if not isinstance(record.get("mutable"), bool):
                 errors.append(f"{label}: mutable must be boolean")
             status = record.get("fingerprint_status")
@@ -982,6 +993,27 @@ def main() -> int:
             elif string_in(status, {"unavailable", "exempt"}):
                 require_fields(record, ("fingerprint_reason",), label, errors)
 
+    snapshot_by_source: dict[str, Path] = {}
+    if schema_version == "1.2":
+        for record in sources:
+            source_id = record.get("source_id")
+            snapshot_value = record.get("snapshot_path")
+            if (
+                record.get("fingerprint_status") == "verified"
+                and isinstance(source_id, str)
+                and isinstance(snapshot_value, str)
+                and snapshot_value
+            ):
+                try:
+                    candidate = (root / snapshot_value).resolve()
+                    usable = candidate.is_relative_to(root) and candidate.is_file()
+                except (OSError, ValueError):
+                    usable = False
+                if usable:
+                    snapshot_by_source[source_id] = candidate
+    snapshot_text_cache: dict[str, str] = {}
+    anchored_evidence_ids: set[str] = set()
+
     for record in evidence:
         label = f"evidence.jsonl:{record['__line__']}"
         require_fields(
@@ -992,6 +1024,30 @@ def main() -> int:
         )
         if not record.get("faithful_paraphrase") and not record.get("exact_excerpt"):
             errors.append(f"{label}: needs faithful_paraphrase or exact_excerpt")
+        if schema_version == "1.2":
+            excerpt = record.get("exact_excerpt")
+            evidence_source = record.get("source_id")
+            if excerpt is not None and not isinstance(excerpt, str):
+                errors.append(f"{label}: exact_excerpt must be a string")
+            elif isinstance(excerpt, str) and excerpt.strip():
+                if len(excerpt.split()) < MIN_EXCERPT_WORDS:
+                    errors.append(
+                        f"{label}: exact_excerpt needs at least {MIN_EXCERPT_WORDS} words "
+                        "to be verifiable"
+                    )
+                elif isinstance(evidence_source, str) and evidence_source in snapshot_by_source:
+                    if evidence_source not in snapshot_text_cache:
+                        snapshot_text_cache[evidence_source] = snapshot_by_source[
+                            evidence_source
+                        ].read_text(encoding="utf-8", errors="replace")
+                    if quote_in_text(snapshot_text_cache[evidence_source], excerpt):
+                        evidence_id = record.get("evidence_id")
+                        if isinstance(evidence_id, str):
+                            anchored_evidence_ids.add(evidence_id)
+                    else:
+                        errors.append(
+                            f"{label}: exact_excerpt not found in snapshot of {evidence_source}"
+                        )
         if not string_in(record.get("source_id"), source_ids):
             errors.append(f"{label}: unknown source {record.get('source_id')}")
         linked_claim_ids = require_list(record, "claim_ids", label, errors)
@@ -1014,6 +1070,14 @@ def main() -> int:
                 and not linked_claim_ids
             ):
                 errors.append(f"{label}: retained evidence must link to a claim")
+
+    evidence_by_source_snapshot_ids = {
+        record["evidence_id"]
+        for record in evidence
+        if isinstance(record.get("evidence_id"), str)
+        and isinstance(record.get("source_id"), str)
+        and record.get("source_id") in snapshot_by_source
+    }
 
     for record in claims:
         label = f"claims.jsonl:{record['__line__']}"
@@ -1072,6 +1136,54 @@ def main() -> int:
                 and not linked
             ):
                 errors.append(f"{label}: retained claim must link to evidence")
+        if (
+            schema_version == "1.2"
+            and record.get("status") != "rejected"
+            and string_in(record.get("importance"), {"critical", "material"})
+        ):
+            importance = str(record.get("importance"))
+            challenge_search = record.get("challenge_search")
+            challenge_recorded = False
+            if challenge_search is not None:
+                if not isinstance(challenge_search, dict):
+                    errors.append(f"{label}: challenge_search must be an object")
+                else:
+                    search_query_ids = require_list(
+                        challenge_search, "query_ids", f"{label}:challenge_search", errors
+                    )
+                    for query_id in search_query_ids:
+                        if not string_in(query_id, query_ids):
+                            errors.append(
+                                f"{label}: challenge_search references unknown query {query_id}"
+                            )
+                    if not string_in(challenge_search.get("result"), CHALLENGE_RESULT_VALUES):
+                        errors.append(f"{label}: challenge_search result is invalid")
+                    challenge_recorded = bool(search_query_ids)
+            if not list_or_empty(record, "challenging_evidence_ids") and not challenge_recorded:
+                message = (
+                    f"{label}: {importance} claim has no challenging evidence and no "
+                    "recorded challenge_search"
+                )
+                if args.stage == "final" and importance == "critical":
+                    errors.append(message)
+                else:
+                    warnings.append(message)
+            unanchored = [
+                evidence_id
+                for evidence_id in list_or_empty(record, "supporting_evidence_ids")
+                if isinstance(evidence_id, str)
+                and evidence_id in evidence_by_source_snapshot_ids
+                and evidence_id not in anchored_evidence_ids
+            ]
+            if unanchored:
+                message = (
+                    f"{label}: supporting evidence without a verified exact_excerpt "
+                    f"although its source has a snapshot: {', '.join(unanchored)}"
+                )
+                if args.stage == "final":
+                    errors.append(message)
+                else:
+                    warnings.append(message)
         if (
             args.stage == "final"
             and isinstance(record.get("importance"), str)
@@ -1899,7 +2011,7 @@ def main() -> int:
             warnings.append("final bundle contains no source records")
         if schema_version == "1.0":
             warnings.append("legacy schema 1.0 bundle; migrate to 1.1 for reproducible sources")
-        if schema_version == "1.1":
+        if schema_version in PROVENANCE_SCHEMAS:
             mutable_unverified = [
                 record.get("source_id", "unknown")
                 for record in sources

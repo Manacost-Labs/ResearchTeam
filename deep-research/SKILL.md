@@ -77,7 +77,7 @@ For a persistent run, initialize the bundle with `scripts/init_research_run.py` 
 
 Use `scripts/research_ops.py resume` to continue from validated gaps, `compare` to inspect claim changes between runs, and `export` only after final validation. Maintainers use the gated `release` command for deterministic 1.0 artifacts.
 
-New bundles use schema 1.1. New persistent `editor-ready` bundles also enable `coverage_contract_version: "1.0"`: define the stable `SEC-0001`-style deliverable sections in `plan.json`, attach every query, evidence, claim, and community record to one or more sections, and assign every evidence, claim, and community record an explicit output destination. This is an additive editor-ready contract, not a schema-version replacement; existing 1.1 bundles without the feature flag remain compatible. When mutable inspected content can be preserved safely, store a local text snapshot and run `scripts/fingerprint_research_sources.py`. For legacy bundles, preview `scripts/migrate_research_bundle.py` before applying its backed-up migration. Never snapshot authenticated, private, or access-restricted content without permission.
+New bundles use schema 1.2: canonical query families, verifiable `exact_excerpt` anchors for evidence with snapshots, and a recorded challenge search or challenging evidence for every critical claim. New persistent `editor-ready` bundles also enable `coverage_contract_version: "1.0"`: define the stable `SEC-0001`-style deliverable sections in `plan.json`, attach every query, evidence, claim, and community record to one or more sections, and assign every evidence, claim, and community record an explicit output destination. This is an additive editor-ready contract, not a schema-version replacement; existing 1.1 bundles without the feature flag remain compatible. When mutable inspected content can be preserved safely, store a local text snapshot and run `scripts/fingerprint_research_sources.py`. For legacy bundles, preview `scripts/migrate_research_bundle.py` before applying its backed-up migration. Never snapshot authenticated, private, or access-restricted content without permission.
 
 ### 2. Run multi-pass discovery and collection
 
@@ -121,7 +121,7 @@ Build [evidence-matrix.md](references/templates/evidence-matrix.md) with the col
 - reconcile, narrow, qualify, or leave unresolved genuine conflicts;
 - assign claim-level confidence.
 
-For schema 1.1 persistent runs, record the Auditor's Claim → Evidence judgments with [semantic-audit.md](references/templates/semantic-audit.md). A structurally valid link is not enough: critical claims require exact semantic support with matching scope, authority, freshness, and evidence type.
+For schema 1.1 and 1.2 persistent runs, record the Auditor's Claim → Evidence judgments with [semantic-audit.md](references/templates/semantic-audit.md). A structurally valid link is not enough: critical claims require exact semantic support with matching scope, authority, freshness, and evidence type.
 
 A narrow official fact may need one high-quality primary source. Strategy claims should normally have two independent confirmations, preferably statistics plus an expert, or multiple experts plus community consensus. Strong superlatives require unusually strong evidence; otherwise use a narrower formulation.
 
