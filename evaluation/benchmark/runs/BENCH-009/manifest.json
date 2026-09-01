@@ -6,6 +6,7 @@
   "updated_at": "2026-08-28T09:01:00Z",
   "as_of": "2026-08-28",
   "depth": "deep",
+  "output_profile": "research-report",
   "modifiers": [
     "current-patch-only"
   ],

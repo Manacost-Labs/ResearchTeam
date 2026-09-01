@@ -24,10 +24,15 @@ User query
   -> Evidence matrix
   -> Contradiction search
   -> Freshness/version validation
-  -> Adversarial Research Auditor
   -> Research database
-  -> deterministic integrity validation
-  -> Final research report
+  -> working structural and referential-integrity validation
+  -> Adversarial Research Auditor
+  -> output router
+       -> Clarity Editor -> editor-ready document
+       -> analytical research report
+       -> explicit raw-research dossier
+  -> final deterministic integrity/readability validation
+  -> delivery and handoff
 ```
 
 ChatGPT Search/Web is the built-in default discovery and source-access layer. The read-only adapter in `scripts/community_sources.py` optionally normalizes RedditAPI, GetXAPI, and TinyFish results into a provider-neutral envelope. Search snippets and provider results are never promoted directly into the evidence database. The collector relies on inspected source content and records access limitations.
@@ -38,10 +43,10 @@ For Chinese Hearthstone sources, `scripts/chinese_hearthstone.py` adds a depende
 
 | Layer | Owns | Does not own |
 |---|---|---|
-| `SKILL.md` | activation, depth, routing, phase order, completion | detailed domain/source rules |
+| `SKILL.md` | activation, depth, output-profile routing, phase order, completion | detailed domain/source rules |
 | shared protocols | search, provenance, verification, freshness, confidence, audit | domain-specific entities |
 | domain adapters | source preferences, version axes, terminology, failure modes | duplicated core methodology |
-| templates | working artifact schemas | mandatory final prose layout for every request |
+| templates | working artifact schemas and profile-specific output shapes | one universal prose layout for every request |
 | source adapter | optional read-only platform access, local rate gates, normalized provider records | source truth, posting, login, or credential storage |
 | Chinese ingestion adapter | public CN source profiles, Scrape.do attempt ledger, deterministic Hearthstone extraction, card DB enrichment | scheduler, private access, final guide writing |
 | research-run scripts | reproducible bundle initialization and referential-integrity validation | judging factual truth |
@@ -57,7 +62,9 @@ For Chinese Hearthstone sources, `scripts/chinese_hearthstone.py` adds a depende
 6. The matrix tests authority, independence, contradictions, and confidence.
 7. Community and contradiction reports preserve disagreement instead of flattening it.
 8. The audit controls whether synthesis is allowed.
-9. The final or raw template exposes validated findings for a user or downstream Writer Skill.
+9. The output router selects an editor-ready, analytical, or explicitly raw template without changing the validated claims.
+10. The Clarity Editor makes editorial output easy to understand while the evidence bundle remains the source of truth.
+11. The final deterministic gate checks the routed artifact, its profile-specific requirements, hashes, citations, and handoff before delivery.
 
 ## Key engineering choices
 
@@ -69,6 +76,7 @@ For Chinese Hearthstone sources, `scripts/chinese_hearthstone.py` adds a depende
 - The core package has no external runtime dependency. Built-in ChatGPT Search/Web supplies network research; provider support is optional and degrades explicitly when credentials or the TinyFish CLI are unavailable.
 - File-backed runs are optional. They are required only when persistence, resumability, raw evidence delivery, or cross-Skill handoff materially improves the task.
 - Deterministic validators prove structure and provenance links, not whether a source is true; the Research Auditor retains that semantic responsibility.
+- Research depth and output complexity are independent: exhaustive collection can still produce a concise `editor-ready` document.
 
 ## Extension rules
 

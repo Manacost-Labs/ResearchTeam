@@ -22,6 +22,10 @@ Use built-in ChatGPT Search/Web to locate and open the actual post, thread, or v
 
 Provider ranking is not community prevalence. Segment automated posts, giveaways, stickied material, crossposts, replies, and incomplete comment trees before interpreting a sample. Preserve the exact subreddit or X query, time window, sort/product, cursor, provider position, and collection time.
 
+For a strategy guide, X and YouTube are section-level evidence channels rather than a single generic community pass. When provider access is available and the user has not set a tighter cost limit, give both channels `high` emphasis: search each decision-relevant guide section through several materially different angles, compare independent qualified creators, and preserve the reasoning or demonstration behind their conclusion. Abundant provider allowance does not justify bulk collection after saturation or weaken source checks.
+
+For X, include the surrounding thread or replies when they qualify, correct, or challenge the post. For YouTube, attach the relevant timestamped segment to the guide section it informs; do not treat a title or full transcript as one undifferentiated evidence item. A transcript establishes what the speaker said, not whether the advice is correct or current.
+
 ## Expert detection for gaming and practitioner topics
 
 Distinguish:

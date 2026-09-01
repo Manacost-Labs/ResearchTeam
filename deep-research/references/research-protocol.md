@@ -12,6 +12,8 @@ Normalize the request into the `MAIN QUESTION`, intended use, ambiguous-term def
 
 Build a recursive tree whose leaves are answerable questions. Split a leaf when it combines mechanisms, outcomes, populations, time periods, modes, or evidence types. Annotate each material leaf with why it matters, evidence required, preferred source class, freshness constraint, and likely confounders.
 
+When the requested result has an expected structure, plan from that deliverable backward. Record the provisional section order, the reader question answered by each section, its evidence requirement, and the source channels most likely to add unique value. For guide or article work, surface this compact structure to the user before the first search and continue without waiting for confirmation unless approval was explicitly requested. Treat it as a working map rather than a fixed table of contents.
+
 Prioritize branches by effect on the final answer, not ease of search.
 
 ### C. Discover with ChatGPT Search/Web
@@ -54,7 +56,9 @@ Pass 6 runs the adversarial quality audit. For each failure:
 
 ### I. Synthesize
 
-Only after validation and audit, answer at the supported level of certainty. Separate established facts, statistics, expert interpretations, community patterns, counterarguments, and unknowns.
+Only after validation and audit, answer at the supported level of certainty. Use the chosen output profile: a plain-language `editor-ready` document for editorial use, a normal `research-report` for analysis, or a technical `raw-research` database only when explicitly requested. Separate established facts, statistics, expert interpretations, community patterns, counterarguments, and unknowns internally; organize the delivered document around the reader's questions rather than evidence-system categories.
+
+For `editor-ready`, run a separate Clarity Editor pass after the factual audit. It may simplify language and structure but cannot change claims, numbers, scope, citations, confidence, limitations, or unresolved disagreements.
 
 ## Depth modes
 
@@ -71,12 +75,18 @@ Never pad the dossier to meet a range. A primary fact can be resolved with one d
 ## Modifiers
 
 - `community-heavy`: broaden platforms and consensus segmentation; never lower evidence standards.
+- `creator-heavy`: give X and YouTube dedicated section-level passes, more query angles, and independent-creator comparison; never convert engagement or provider volume into authority.
 - `statistics-heavy`: prioritize datasets, definitions, methods, and sensitivity checks.
 - `primary-sources-only`: exclude secondary support from conclusions; report lost coverage.
 - `current-patch-only`: exclude incompatible evidence; permit older version-compatible mechanics only when explicitly justified.
-- `raw-research`: preserve rich claim records and notes for a downstream writer.
 - `fact-check`: foreground verdict criteria and exact semantic support.
 - `contradiction-heavy`: expand alternative hypotheses and disconfirming queries.
+
+## Output profiles
+
+- `editor-ready`: default for article, guide, editor, content, and publication requests. Preserve rich evidence internally and deliver only the plain-language material needed for editing.
+- `research-report`: default for analytical reporting that does not request editorial material.
+- `raw-research`: explicit opt-in for a raw dossier, complete evidence matrix, audit trail, claim-level provenance, or machine-oriented evidence database. Research breadth alone never activates it.
 
 ## Saturation
 
@@ -84,6 +94,6 @@ A branch is saturated when several consecutive new quality sources add no new cl
 
 ## Completion
 
-Finish when all decision-relevant branches are answered, excluded, or unresolved with impact stated; central claims have inspected evidence appropriate to their type; dependencies and contradictions are accounted for; freshness requirements are satisfied or disclosed; major branches are saturated; and the audit is `pass` or `pass_with_warnings`.
+Finish when all decision-relevant branches are answered, excluded, or unresolved with impact stated; central claims have inspected evidence appropriate to their type; dependencies and contradictions are accounted for; freshness requirements are satisfied or disclosed; major branches are saturated; and the factual audit is `pass` or `pass_with_warnings`. An `editor-ready` delivery also requires the Clarity Editor pass and any deterministic structure failures to be fixed.
 
 Source count, elapsed time, or polished prose alone never proves completion.

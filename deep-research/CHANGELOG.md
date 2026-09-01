@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Added additive editor-ready coverage contract `1.0`: stable `plan.json` sections; section links on queries, evidence, claims, and community records; output destinations only on evidence, claims, and community records; mandatory section-organized `useful-data.md` banks for `deep` and `exhaustive` runs; reader-visible IDs that cannot be satisfied through code, link destinations, HTML attributes, comments, or hidden HTML; substantive prose beyond link labels and inline code; evidence-matched visible-source checks; critical/material-main and covered-section support invariants; full manifest/plan/all-ledger/report/applicable-artifact hashing; present quick-bank validation; and backward compatibility for existing schema 1.1 bundles.
+- Added outline-first guide planning: the Skill now shows a concise search structure before research, maps every future section to evidence requirements, and continues without an unnecessary approval pause.
+- Added `creator-heavy` routing and high-emphasis, section-level X and YouTube passes for strategy guides, with independent-creator comparison, timestamps, freshness checks, and saturation limits.
+- Added a constructed Hearthstone deck-guide map covering current relevance, comparable builds and codes, best-build criteria, card choices, starting hand, game plan, opposing decks, mistakes, and practical handoff in plain Russian.
+- Added an `editor-ready` output profile for article, guide, and editorial research requests; raw evidence output now requires an explicit dossier or audit request.
+- Added a separate Clarity Editor gate and persistent six-part preservation review so plain-language synthesis cannot weaken factual audit, citations, uncertainty, or provenance.
+- Added editor-facing templates, a separate evidence appendix, and deterministic Markdown clarity validation.
+- Added official Russian Hearthstone entity-name resolution through mode-specific `api.kolodahearthstone.com` endpoints, with DBF identity, safe token handling, and explicit localization gaps instead of improvised translations.
+- Added a Russian Hearthstone terminology gate that replaces unexplained research and gaming anglicisms with plain language.
 - Added a dependency-free Chinese Hearthstone ingestion pipeline for IYingdi, TapTap, NGA, Bilibili, GamerSky, and 17173.
 - Added content-aware Scrape.do escalation with bounded retries, target/provider status separation, dead-URL stop rules, cost headers, redacted diagnostics, and browser-fallback state.
 - Added deterministic Hearthstone deckstring decoding, validation, fingerprints, 30/29/28/26-card similarity, source-to-deck relationships, and added/removed DBF IDs.

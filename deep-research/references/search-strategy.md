@@ -26,6 +26,21 @@ For every material leaf, create a query set from the applicable families:
 
 Patterns are prompts for expansion, not literal mandatory queries.
 
+## Search from the deliverable outline
+
+For guides and articles, map every decision-relevant future section to research-tree leaves before generating queries. A section is not covered merely because the topic appears in a broad search result. Record the question the section must answer, its minimum evidence classes, its X/YouTube relevance, and the evidence that could reverse the preliminary advice.
+
+Show the user a compact `Структура поиска` before the first search, using ordinary content labels rather than internal IDs. Continue immediately unless the user explicitly requested a planning checkpoint. Change the map when the evidence reveals a missing section or shows that two planned sections answer the same question.
+
+## High-emphasis X and YouTube passes
+
+For strategy guides, use `high` emphasis for X and YouTube when access is available and no tighter cost limit was requested. This means more useful query angles and independent creators, not a fixed result quota.
+
+- X: search the topic plus the current patch/version, named experts, concrete choices, alternatives, matchups, failure cases, and disagreement. Inspect the direct post and relevant reply/thread context; separate original analysis from reactions to the same upstream claim.
+- YouTube: search the topic plus the current patch/version, qualified player or coach, guide, coaching/VOD, matchup, and mistakes. Inspect the video page and extract only the relevant timestamped transcript segments. Verify the gameplay patch separately from upload date.
+- For central strategic advice, seek at least two independent qualified creator perspectives across X and YouTube when accessible. If the advice depends on an action sequence, aim to include a timestamped demonstration or explanation rather than relying only on short posts.
+- Stop a section when additional qualified sources add no new reasoning, condition, counterexample, or confidence change. Report access gaps instead of compensating with unrelated volume.
+
 ## Evidence-availability gate
 
 Before spending most of the search budget, test whether each required evidence class is actually accessible:

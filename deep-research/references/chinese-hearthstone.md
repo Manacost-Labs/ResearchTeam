@@ -87,6 +87,8 @@ Added and removed DBF IDs remain explicit.
 
 Card names and classes come from the read-only `GET /api/v1/constructed-cards/by-dbf/{dbf}` contract at [api.kolodahearthstone.com](https://github.com/Manacost-Labs/api.kolodahearthstone.com). Public reads work without a token. If `KHS_API_TOKEN` is configured, it is sent only in `Authorization: Bearer` and never appears in output. A missing DBF ID remains a visible validation gap.
 
+For Russian output across constructed and other Hearthstone modes, use `scripts/hearthstone_names.py --dbf DBF_ID --kind KIND`. The resolver supports constructed cards, Battlegrounds cards and heroes, timewarped cards, anomalies, Dark Gifts, quests, Darkmoon Prizes, rewards, and trinkets through their mode-specific public read-only endpoints. A missing Russian name is a localization gap, never permission to invent a translation.
+
 The deck format implementation is compatible with the documented [HearthSim deckstring format](https://hearthsim.info/docs/deckstrings/) and the MIT/ISC-attributed [Manacost Labs deckstring codecs](https://github.com/Manacost-Labs/hearthstone-deckstrings).
 
 ## Origin classification

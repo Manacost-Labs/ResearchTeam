@@ -91,6 +91,7 @@ operation accepts only a validated source id; current MetaStats ids include `met
 - Use `Latest` for a time-bounded chronological sample and `Top` only as provider relevance order. Do not describe `Top` as a strict ranking by engagement.
 - Preserve query operators, product, cursor, provider position, timestamps, direct post URLs, and each engagement field separately.
 - Each page is a separate paid request. Paginate only while a named evidence gap justifies the cost; record the cursor and stop condition.
+- Under `creator-heavy`, spend the additional allowance on materially different section-level queries, named experts, direct choices, corrections, and counterpositions. Do not spend it on repeated pagination of one broad query after that guide section is saturated.
 - Engagement is a collection-time observation. It does not prove accuracy, prevalence, or sentiment.
 - The service is a third-party access layer, not the official X API. Cross-check consequential posts and disclose access gaps.
 
@@ -108,6 +109,7 @@ operation accepts only a validated source id; current MetaStats ids include `met
 - A search result remains `discovery_only`. A transcript becomes usable evidence only after the relevant timestamped segment is inspected and attached to an atomic claim.
 - Never classify someone as a professional player from views, title wording, or channel name. Verify the role through a current tournament roster, team page, leaderboard, official player profile, or another attributable source. After that, use `youtube-channel-search` to constrain discovery to the verified channel.
 - Search for current-patch guides with explicit game, mode, archetype/topic, version, expert name or competitive role, and a counter-position. Include tournament/VOD, coaching, mistakes, matchup, and localized query variants when relevant.
+- Under `creator-heavy`, map each search and transcript segment to the guide section it informs. Prefer several independently verified creators and targeted segments over one long transcript or a large undifferentiated result list.
 - `youtube-transcript` accepts a common YouTube URL or bare video ID. It returns timed caption segments, 30-second evidence windows, direct timestamp links, and a content hash. Captions may be automatic and must be checked for game terms, names, numbers, and negation.
 - If TranscriptAPI is unavailable, unaffordable, or blocked for one video, use `youtube-public-transcript` as an **explicit reserve route**. Run it with `uv run --with youtube-transcript-api` or install that optional package locally. The result records `provider=youtube_public_captions` and `fallback_role=explicit_reserve`; never relabel it as a successful TranscriptAPI call.
 - Public captions are an unofficial, best-effort path. They may work when YouTube's transcript panel or a browser agent is blocked, but they can also disappear or fail independently. Do not retry indefinitely. If the track is unavailable, try direct video inspection through TinyFish/browser tooling; otherwise mark transcript coverage `PARTIAL` or `BLOCKED`.

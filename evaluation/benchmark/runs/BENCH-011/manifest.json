@@ -6,8 +6,8 @@
   "updated_at": "2026-08-28T09:19:00Z",
   "as_of": "2026-08-28",
   "depth": "exhaustive",
+  "output_profile": "raw-research",
   "modifiers": [
-    "raw-research",
     "current-patch-only"
   ],
   "domain_adapters": [

@@ -6,6 +6,7 @@
   "updated_at": "2026-08-28T07:22:00Z",
   "as_of": "2026-08-28",
   "depth": "quick",
+  "output_profile": "research-report",
   "modifiers": [
     "fact-check"
   ],

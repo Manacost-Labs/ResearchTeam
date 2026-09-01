@@ -5,6 +5,9 @@
 - `VERSION` and changelog entry agree.
 - `python3 scripts/audit_skill.py` passes.
 - `python3 -m unittest discover -s tests -p 'test_*.py' -v` passes.
+- A representative `editor-ready` document passes `python3 scripts/validate_editor_output.py FILE` without blocking errors.
+- A persistent `editor-ready` bundle records a passing post-edit preservation review for claims, numbers, scope, citations, limitations, and contradictions.
+- Any Russian Hearthstone sample uses exact KHS Russian names for resolved entities, leaves missing localization explicit, and resolves avoidable anglicism warnings.
 - Official Skill package validation passes.
 - At least one representative final research bundle passes validation.
 - Semantic gold evaluation passes at 95% or higher with zero P0 failures.

@@ -4,7 +4,11 @@
 evidence_id:
 source_id:
 claim_ids: []
+deliverable_section_ids: [SEC-0001]
 relationship: supports | challenges | contextualizes | mentions_only
+output_disposition: main | useful_data | appendix | omit
+output_omit_reason:
+useful_data_types: []
 
 locator:
   page:
@@ -38,3 +42,5 @@ quality_notes:
 ```
 
 Leave irrelevant statistical fields blank. Do not infer a missing denominator or sample size.
+
+The coverage fields apply only when `manifest.json` enables `coverage_contract_version: "1.0"`. `omit` requires `output_omit_reason`. `useful_data` requires one or more of `number`, `comparison`, `advice`, `sequence`, `example`, `mistake`, `exception`, `deck_code`, `x_insight`, or `youtube_segment`.

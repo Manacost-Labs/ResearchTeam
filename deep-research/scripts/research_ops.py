@@ -27,6 +27,23 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def effective_output_profile(manifest: dict[str, Any]) -> tuple[str, bool]:
+    profile = manifest.get("output_profile")
+    if isinstance(profile, str) and profile in {
+        "editor-ready",
+        "research-report",
+        "raw-research",
+    }:
+        return profile, False
+    modifiers = manifest.get("modifiers")
+    inferred = (
+        "raw-research"
+        if isinstance(modifiers, list) and "raw-research" in modifiers
+        else "research-report"
+    )
+    return inferred, True
+
+
 def run_checked(command: list[str], cwd: Path | None = None) -> None:
     result = subprocess.run(command, cwd=cwd, check=False, text=True, capture_output=True)
     if result.stdout:
@@ -60,12 +77,16 @@ def command_resume(args: argparse.Namespace) -> int:
     validator = Path(__file__).with_name("validate_research_run.py")
     run_checked([sys.executable, str(validator), str(run), "--stage", "working"])
     manifest = load_json(run / "manifest.json")
+    output_profile, profile_inferred = effective_output_profile(manifest)
     checkpoints = load_jsonl(run / "checkpoints.jsonl")
     latest = checkpoints[-1] if checkpoints else {}
     summary = {
         "research_id": manifest.get("research_id"),
         "status": manifest.get("status"),
         "as_of": manifest.get("as_of"),
+        "output_profile": output_profile,
+        "output_profile_inferred": profile_inferred,
+        "modifiers": manifest.get("modifiers", []),
         "latest_checkpoint": latest.get("checkpoint_id"),
         "missing_data": latest.get("missing_data", []),
         "unsaturated_branches": latest.get("unsaturated_branches", []),

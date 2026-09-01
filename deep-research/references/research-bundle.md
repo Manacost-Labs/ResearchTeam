@@ -10,8 +10,8 @@ The bundle is an optional, portable evidence database for long-running or writer
 python3 scripts/init_research_run.py RUN_DIRECTORY \
   --question "MAIN QUESTION" \
   --depth exhaustive \
+  --output-profile raw-research \
   --domain hearthstone \
-  --modifier raw-research \
   --modifier current-patch-only
 
 python3 scripts/validate_research_run.py RUN_DIRECTORY --stage working
@@ -28,6 +28,7 @@ The initializer refuses to overwrite a non-empty directory.
 ```text
 research-run/
 ├── manifest.json
+├── plan.json               # new editor-ready coverage contract only
 ├── snapshots/              # optional preserved inspected content
 ├── migration-backups/      # created only by applied migrations
 ├── queries.jsonl
@@ -40,6 +41,8 @@ research-run/
 ├── semantic-audit.jsonl
 ├── audit.json
 ├── report.md
+├── useful-data.md          # required for deep/exhaustive editor-ready
+├── evidence-appendix.md    # required when any record routes to appendix
 └── handoff.md
 ```
 
@@ -47,7 +50,7 @@ JSON Lines ledgers contain one JSON object per line. This keeps large runs appen
 
 ## Manifest contract
 
-Required fields:
+Newly initialized bundles include:
 
 ```json
 {
@@ -58,6 +61,7 @@ Required fields:
   "updated_at": "ISO-8601 UTC",
   "as_of": "YYYY-MM-DD",
   "depth": "quick | deep | exhaustive",
+  "output_profile": "editor-ready | research-report | raw-research",
   "modifiers": [],
   "domain_adapters": [],
   "status": "planned | discovering | collecting | validating | auditing | complete | incomplete | blocked",
@@ -71,13 +75,41 @@ Required fields:
 }
 ```
 
-Schema `1.0` remains readable for legacy validation. New runs use `1.1`. Migrate with a dry-run first; `--apply` creates a timestamped backup under `migration-backups/`, and `--rollback BACKUP_DIRECTORY` restores the two migrated ledgers.
+`output_profile` records the intended presentation separately from research-scope modifiers. The default for newly initialized runs is `research-report`; use `editor-ready` for the editor-facing synthesis or `raw-research` for an explicitly requested dossier. Schema `1.1` requires this field. Legacy schema `1.0` manifests without it remain readable: the validator infers `raw-research` only from the old `raw-research` modifier and otherwise assumes `research-report`, with a compatibility warning. An early schema `1.1` bundle without this field remains resumable at the working stage with the same explicit warning, but cannot pass the final gate until `migrate_research_bundle.py` backfills the matching profile in both `manifest.json` and `handoff.md`. In schema `1.1`, `raw-research` is not a modifier.
+
+Every newly initialized `editor-ready` manifest also contains `"coverage_contract_version": "1.0"`. This feature flag adds a section-to-output preservation contract while leaving the bundle on schema 1.1. Existing schema 1.1 bundles without the flag remain valid under the legacy contract; the validator does not force an automatic migration.
+
+The coverage-enabled bundle adds `plan.json`:
+
+```json
+{
+  "coverage_contract_version": "1.0",
+  "research_id": "RES-...",
+  "updated_at": "ISO-8601 UTC",
+  "deliverable_outline": [
+    {
+      "section_id": "SEC-0001",
+      "working_title": "...",
+      "reader_question": "...",
+      "readiness_condition": "...",
+      "status": "planned | researching | covered | excluded | unresolved",
+      "coverage_note": ""
+    }
+  ]
+}
+```
+
+Section IDs are stable and must not be renumbered when prose headings change. At final validation, every section is `covered`, `excluded`, or `unresolved`; `excluded` and `unresolved` require a meaningful `coverage_note`.
+
+For `editor-ready`, `audit.json` also records a post-edit `clarity_review`. Its status can become `pass` only after an item-by-item comparison confirms that material claims, numbers, scope, citations, limitations, and contradictions survived the Clarity Editor pass. Record `reviewed_at` as an ISO-8601 timestamp, list all reviewed critical/material claims in `reviewed_claim_ids`, and store exact SHA-256 values for `report.md`, `claims.jsonl`, and `sources.jsonl`. This freezes the reviewed artifacts: editing any of them invalidates the final gate. This is a semantic review record, not a claim that the deterministic readability checker can understand meaning.
+
+Schema `1.0` remains readable for legacy validation. New runs use `1.1`. The migration tool upgrades schema `1.0` and can also backfill a matching `output_profile` in the manifest and handoff of an early schema `1.1` bundle. It refuses conflicting or duplicate handoff values. Run it without `--apply` first; applying creates a timestamped backup of `manifest.json`, `sources.jsonl`, and `handoff.md` under `migration-backups/`, and `--rollback BACKUP_DIRECTORY` restores the protected files.
 
 ## Minimum ledger contracts
 
 ### Query
 
-`query_id`, `pass`, `family`, `query`, `executed_at`, `status`, and optional `result_source_ids`.
+`query_id`, `pass`, `family`, `query`, `executed_at`, `status`, and optional `result_source_ids`. Under the editor-ready coverage contract, also include a non-empty `deliverable_section_ids` list.
 
 ### Source
 
@@ -87,15 +119,17 @@ For `verified`, also record `snapshot_path`, `content_sha256`, `content_bytes`, 
 
 ### Evidence
 
-`evidence_id`, `source_id`, `claim_ids`, `relationship`, `locator`, `evidence_type`, and either a faithful paraphrase or a compliant excerpt.
+`evidence_id`, `source_id`, `claim_ids`, `relationship`, `locator`, `evidence_type`, and either a faithful paraphrase or a compliant excerpt. Under the coverage contract, add `deliverable_section_ids` and `output_disposition`.
 
 ### Claim
 
-`claim_id`, `claim`, `importance`, `status`, `confidence`, `supporting_evidence_ids`, `challenging_evidence_ids`, plus scope and impact fields when relevant.
+`claim_id`, `claim`, `importance`, `status`, `confidence`, `supporting_evidence_ids`, `challenging_evidence_ids`, plus scope and impact fields when relevant. Under the coverage contract, add `deliverable_section_ids` and `output_disposition`.
 
 ### Community and contradiction records
 
-Use `community_claim_id` or `contradiction_id` and the corresponding template fields. Keep source/evidence IDs rather than copying unsupported prose.
+Use `community_claim_id` or `contradiction_id` and the corresponding template fields. Keep source/evidence IDs rather than copying unsupported prose. Coverage-enabled community records also use `deliverable_section_ids` and `output_disposition`; contradiction records keep their existing contract.
+
+For coverage-enabled evidence, claim, and community records, `output_disposition` is exactly one of `main`, `useful_data`, `appendix`, or `omit`. Query records have section links but no output disposition. `omit` requires a non-empty `output_omit_reason`. `useful_data` requires a non-empty `useful_data_types` list containing only `number`, `comparison`, `advice`, `sequence`, `example`, `mistake`, `exception`, `deck_code`, `x_insight`, or `youtube_segment`. Every non-rejected critical or material claim must route to `main`.
 
 ### Checkpoint
 
@@ -110,7 +144,7 @@ Schema `1.1` uses `semantic_audit_id`, `claim_id`, `evidence_id`, `source_id`, `
 The deterministic validator checks:
 
 - required files and parseable JSON/JSONL;
-- required manifest values and allowed lifecycle states;
+- required manifest values, allowed lifecycle states, and a required valid `output_profile` for schema `1.1`;
 - ID uniqueness;
 - evidence-to-source and evidence-to-claim references;
 - claim-to-evidence references;
@@ -118,7 +152,16 @@ The deterministic validator checks:
 - execution/access timestamps and checkpoint gap-list shapes;
 - schema 1.1 provenance policy, snapshot containment, SHA-256 shape, and actual snapshot hash;
 - semantic-audit references, verdict values, match fields, and final critical/material coverage;
+- editor-ready section links on query/evidence/claim/community records, plus allowed dispositions, omission reasons, and useful-data types on evidence/claim/community records when the feature flag is enabled;
 - final audit/readiness conditions.
+
+At final stage, the handoff must repeat the manifest output profile and audit status, declare a valid delivery status, and record `bundle_validation: pass`. An incomplete run must use `delivery_status: not_ready`; `pass_with_warnings` cannot claim plain `ready`.
+
+An `editor-ready` bundle additionally requires non-empty source and claim ledgers, at least one critical/material reviewed claim, a structurally valid `report.md`, source links bound to `sources.jsonl`, and a passing `clarity_review` with all six preservation checks, reviewed claim IDs, and matching report/claim/source hashes. Style warnings remain visible but do not by themselves fail an otherwise faithful document.
+
+A coverage-enabled `editor-ready` final additionally requires a completed `plan.json`, complete section links and dispositions in the relevant ledgers, a passing `audit.json.coverage_review`, and handoff `coverage_preservation: pass`. The review accounts for every evidence, claim, and community record and always freezes `manifest.json`, `plan.json`, all eight JSONL ledgers (`queries`, `sources`, `evidence`, `claims`, `community`, `contradictions`, `checkpoints`, and `semantic-audit`), and `report.md`. It also freezes `useful-data.md` when the bank is required, contains routed records, or merely exists, including in a `quick` run; it freezes `evidence-appendix.md` when any record uses `appendix`. Every `deep` or `exhaustive` editor-ready run requires a non-placeholder `useful-data.md` even when no evidence appendix is requested.
+
+Every record routed to `useful_data` or `appendix` must be explicitly accounted for by visible ID in a Markdown block with substantive ordinary text and a direct clickable URL matching a source connected through that record's evidence. A shared block is allowed only when it shows every included ID and a matching evidence-linked source for each record. An ID or URL hidden in code, a link destination, HTML attributes, comments, or explicitly hidden HTML does not satisfy this rule.
 
 It cannot prove that a source is authoritative, an excerpt is faithful, a claim is true, or a conclusion is well reasoned. Those remain evidence-protocol and Auditor responsibilities.
 
@@ -132,6 +175,17 @@ At `final` stage:
 - unsupported critical claims are absent;
 - unresolved critical claims state their impact on the main answer;
 - `report.md` and `handoff.md` contain non-placeholder content.
+
+For a coverage-enabled `editor-ready` final stage:
+
+- every deliverable section has a final status, with an explanatory note for `excluded` or `unresolved`;
+- every query, evidence, claim, and community record links to a known section;
+- every evidence, claim, and community record is accounted for by its declared output disposition;
+- every non-rejected critical or material claim uses `main`, and every covered section has at least one `supported`, `supported_with_conditions`, or `contested` claim routed to `main`;
+- every `useful_data` record appears in `useful-data.md`, and every `appendix` record appears in `evidence-appendix.md`;
+- every routed bank/appendix record has its ID in ordinary reader-visible text rather than code, link destinations, HTML attributes, comments, or hidden HTML; substantive prose beyond the link label or inline-code example; and a visible direct source link matching its linked evidence;
+- `coverage_review` records the reviewed non-omitted IDs, omitted IDs, section results, review timestamp, SHA-256 for the manifest, plan, all eight JSONL ledgers, and report, plus SHA-256 for every required, routed, or present bank and applicable appendix;
+- the handoff records `coverage_preservation: pass`.
 
 An incomplete but honest run can validate structurally; its handoff must remain `not_ready` for strong downstream claims.
 

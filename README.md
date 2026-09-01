@@ -8,7 +8,7 @@ Turn an open-ended question into an auditable chain of sources, evidence, claims
 
 [![Release](https://img.shields.io/badge/release-1.0.0-0A7B83)](deep-research/CHANGELOG.md)
 [![Benchmark](https://img.shields.io/badge/benchmark-22%2F22-success)](evaluation/benchmark/README.md)
-[![Tests](https://img.shields.io/badge/source%20tests-60%20passing-success)](deep-research/tests)
+[![Tests](https://img.shields.io/badge/source%20suite-passing-success)](deep-research/tests)
 [![Semantic Gold](https://img.shields.io/badge/semantic%20gold-100%25-success)](evaluation/gold/semantic-cases.jsonl)
 [![License](https://img.shields.io/badge/license-proprietary-lightgrey)](LICENSE)
 
@@ -27,11 +27,14 @@ Most research failures happen before writing: the question is underspecified, se
 
 ResearchTeam makes those failure modes explicit and testable. It plans first, collects evidence by claim type, validates provenance and freshness, searches for disconfirming evidence, and permits a strong conclusion only after the quality gate passes.
 
-> **Release boundary:** `deep-research-1.0.0.zip` is the verified stable package. The repository source also contains unreleased read-only adapters for RedditAPI, GetXAPI, TranscriptAPI, TinyFish, and Chinese Hearthstone intelligence. They are not silently included in the 1.0.0 archive.
+For article and guide work, the validated evidence is then converted into a plain-language `editor-ready` document. Internal claim IDs, audit logs, methodology, and the full evidence matrix stay in the research bundle or a separate appendix instead of interrupting the editor's main document.
+
+> **Release boundary:** `deep-research-1.0.0.zip` is the verified stable package. The repository source also contains unreleased `editor-ready` output, Russian Hearthstone naming, and read-only adapters for RedditAPI, GetXAPI, TranscriptAPI, TinyFish, and Chinese Hearthstone intelligence. They are not silently included in the 1.0.0 archive.
 
 ## Core guarantees
 
 - Research planning happens before conclusion writing.
+- Guide research begins with a visible section-by-section search structure; each future section has its own question and evidence requirements.
 - Primary sources, statistics, experts, community evidence, and counter-evidence remain separate.
 - Every consequential conclusion is traceable through `Claim → Evidence → Source`.
 - Publication date, event date, access date, version, patch, sample, and source lineage are preserved when relevant.
@@ -40,6 +43,11 @@ ResearchTeam makes those failure modes explicit and testable. It plans first, co
 - Missing evidence lowers confidence instead of being hidden.
 - The final state is explicit: `ready`, `ready_with_warnings`, or `not_ready`.
 - Web content is treated as untrusted data and cannot override the research task or request secrets/actions.
+- Article, guide, and editor requests receive a plain-language document by default; raw evidence output requires an explicit request.
+- Persistent editor-ready delivery is blocked until a separate review confirms that claims, numbers, conditions, citations, limitations, and contradictions survived the rewrite.
+- New editor-ready bundles map queries, evidence, claims, and community records to stable future sections; only evidence, claims, and community records receive an output destination. Every covered section retains a `supported`, `supported_with_conditions`, or `contested` main claim, while `deep`/`exhaustive` runs keep a separate `useful-data.md` bank. Final review freezes the manifest, plan, every research ledger, report, and every applicable bank or appendix so editorial compression cannot silently discard useful numbers, examples, advice, codes, creator insights, contradictions, or audit decisions.
+- Russian Hearthstone names are resolved from mode-specific Koloda API records by DBF ID instead of being translated from memory.
+- Hearthstone strategy guides give X and YouTube dedicated section-level passes when access is available, while keeping creator claims separate from official facts and statistics.
 
 ## How it works
 
@@ -58,7 +66,10 @@ Contradiction, freshness, and semantic-support checks
   ↓
 Adversarial Research Auditor
   ↓
-Research report or reusable evidence bundle
+Output router
+  ├─ Clarity Editor → editor-ready document
+  ├─ analytical research report
+  └─ explicit raw evidence dossier
 ```
 
 The built-in **ChatGPT Search/Web** capability remains the default discovery and source-opening layer. Optional providers improve platform-specific access without weakening the evidence rules.
@@ -72,7 +83,7 @@ The built-in **ChatGPT Search/Web** capability remains the default discovery and
 | TranscriptAPI | YouTube search, verified-channel discovery, and timestamped transcripts | Unreleased source adapter |
 | TinyFish | General web search and clean page extraction | Unreleased source adapter |
 | Scrape.do + Chinese profiles | Repeatable IYingdi, TapTap, NGA, Bilibili, GamerSky, and 17173 ingestion | Unreleased source adapter |
-| Koloda Hearthstone API | DBF validation and RU/EN card metadata | Unreleased source adapter |
+| Koloda Hearthstone API | Official RU/EN names by DBF for constructed, Battlegrounds, heroes, and seasonal libraries | Unreleased source adapter |
 
 Provider output is not automatically evidence. The original source must still be inspected and attached to a specific claim.
 
@@ -107,7 +118,7 @@ Expected entrypoint:
 ~/.codex/skills/deep-research/SKILL.md
 ```
 
-## Research modes
+## Research modes and output profiles
 
 The default mode is `deep`. Modes and modifiers can be combined:
 
@@ -118,9 +129,12 @@ The default mode is `deep`. Modes and modifiers can be combined:
 | `exhaustive` | A guide, dossier, or reusable evidence base needs recursive coverage |
 | `current-patch-only` | Product/game version compatibility is mandatory |
 | `community-heavy` | Reddit, X, YouTube, forums, or practitioners are central |
+| `creator-heavy` | X and YouTube need dedicated section-level passes and independent-creator comparison |
 | `statistics-heavy` | Quantitative evidence and methodology are decision-critical |
 | `contradiction-heavy` | The topic is disputed, strategic, causal, or superlative |
-| `raw-research` | Another Skill or writer will consume the validated evidence later |
+| `editor-ready` | Default output for article, guide, editor, content, and publication material |
+| `research-report` | Default output for an analytical report |
+| `raw-research` | Explicit opt-in for a raw dossier, complete evidence matrix, or claim-level audit trail |
 
 Example:
 
@@ -129,7 +143,8 @@ Use $deep-research to determine when the first Dark Gift should be used in
 Hearthstone Battlegrounds for the current patch. Separate mechanics,
 statistics, high-MMR expert advice, community opinion, and counterarguments.
 
-research: exhaustive, current-patch-only, raw-research
+research: exhaustive, current-patch-only
+output: editor-ready
 ```
 
 ## Optional provider adapters
@@ -200,6 +215,16 @@ python3 deep-research/scripts/chinese_hearthstone.py fetch \
 
 It reads `SCRAPE_DO_API_TOKEN` and optionally `KHS_API_TOKEN` from the environment. It validates actual content before accepting HTTP 200, uses a private validated cache and cross-process local rate limiter, reports provider credits without exposing credentials, escalates `normal → render → super → super+render`, stops dead URLs and account/rate errors, preserves original Chinese, binds each deck to its own statistics block, decodes special-size deckstrings without false corruption errors, tracks repost lineage, and resolves cards through [api.kolodahearthstone.com](https://github.com/Manacost-Labs/api.kolodahearthstone.com). Full methodology and CLI contracts are in [Chinese Hearthstone intelligence](deep-research/references/chinese-hearthstone.md).
 
+Resolve official Russian Hearthstone names for any supported mode:
+
+```bash
+python3 deep-research/scripts/hearthstone_names.py --dbf 315 --kind constructed
+python3 deep-research/scripts/hearthstone_names.py --dbf 130298 --kind battlegrounds-card
+python3 deep-research/scripts/hearthstone_names.py --dbf 73940 --kind hero
+```
+
+The resolver also supports timewarped cards, anomalies, Dark Gifts, quests, Darkmoon Prizes, rewards, and trinkets. If the API has no matching Russian localization, the result remains unresolved; the Skill does not invent a translation.
+
 ## Persistent professional workflow
 
 For exhaustive, resumable, or cross-Skill work, create a schema 1.1 research bundle:
@@ -210,7 +235,8 @@ python3 deep-research/scripts/init_research_run.py /path/to/run \
   --question "Main research question" \
   --depth exhaustive \
   --domain general \
-  --modifier raw-research
+  --output-profile raw-research \
+  --modifier current-patch-only
 
 # Continue from recorded evidence gaps
 python3 deep-research/scripts/research_ops.py resume /path/to/run
@@ -243,7 +269,7 @@ The stable 1.0.0 release is backed by 20 live Search/Web scenarios across five d
 | False-ready decisions | 0 |
 | Web-safety violations | 0 |
 | Automated tests in the 1.0.0 release | 16 passing |
-| Automated tests in current source | 42 passing |
+| Automated tests in current source | Full suite passing |
 
 The release validator recomputes benchmark metrics from the linked research bundles. Editing a summary result cannot manufacture a passing release.
 

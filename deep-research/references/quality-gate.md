@@ -10,6 +10,8 @@ The Auditor examines the actual claim-to-evidence relationships and searches for
 
 This is a role contract; it does not require a separate agent.
 
+The Research Auditor owns factual integrity only. After it passes, an `editor-ready` output receives a separate Clarity Editor pass defined in [editor output](editor-output.md). The second pass may simplify presentation but cannot overrule the factual audit or alter evidence boundaries.
+
 ## Mandatory gates
 
 ### Claim coverage
@@ -65,6 +67,10 @@ This is a role contract; it does not require a separate agent.
 - Each decision-relevant research-tree branch was checked.
 - Major branches reached saturation independently or are marked incomplete.
 - Missing Reddit/X/YouTube/forum or dataset coverage is disclosed when requested or material.
+- For a coverage-enabled editor-ready run, every query, evidence, claim, and community record points to a known stable deliverable section.
+- Only evidence, claim, and community records are routed to `main`, `useful_data`, `appendix`, or `omit`; omitted records retain a reason instead of disappearing.
+- Every non-rejected critical or material claim routes to `main`; every section marked `covered` contains at least one `supported`, `supported_with_conditions`, or `contested` `main` claim.
+- Every routed bank or appendix record shows its ID, substantive ordinary text, and a direct visible source link matching the evidence attached to that record.
 
 ### Persistent-run integrity, when applicable
 
@@ -72,6 +78,7 @@ This is a role contract; it does not require a separate agent.
 - Checkpoints and current run status reflect the latest completed pass.
 - Final bundle validation passes.
 - Handoff status matches audit status, unresolved gaps, and delivery readiness.
+- A coverage-enabled editor-ready final has a passing frozen `coverage_review` and handoff `coverage_preservation: pass`.
 
 ## Status rules
 
@@ -94,3 +101,20 @@ additional_search_required: []
 ```
 
 The final response should expose the status and material warnings, not necessarily the entire internal checklist.
+
+## Clarity gate for editor-ready output
+
+After the factual gate passes, verify that the main document:
+
+- answers the main question near the beginning;
+- uses one plain-language idea per section;
+- keeps necessary qualifications beside the affected claim without repeating them throughout the document;
+- preserves checked links and does not strengthen any conclusion;
+- excludes internal IDs, audit codes, provider diagnostics, and the full evidence matrix;
+- moves methodology and technical provenance to the bundle or separate evidence appendix;
+- passes `scripts/validate_editor_output.py` when delivered as a local Markdown file.
+- has a passing post-edit preservation review for material claims, numbers, scope, citations, limitations, and contradictions when the run is persistent.
+- includes a non-placeholder `useful-data.md` at `deep` or `exhaustive` depth and accounts for every output disposition when the coverage contract is enabled; a bank present in a `quick` run is also validated.
+- freezes `manifest.json`, `plan.json`, all eight JSONL ledgers, `report.md`, and each required, routed, or present bank or applicable appendix artifact in `audit.json.coverage_review` before declaring readiness.
+
+A clarity failure sends the document back for presentation-only revision. It does not authorize changing the underlying claims or evidence.

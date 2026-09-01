@@ -8,7 +8,7 @@ The verified archive remains version `1.0.0`. The current source tree also conta
 
 ## What it changes
 
-The Skill prevents premature answer writing. It turns a request into a research tree, uses the built-in ChatGPT Search/Web capability to discover and open sources, extracts atomic claims, validates evidence and independence, actively searches for contradictions, then synthesizes only after a quality audit.
+The Skill prevents premature answer writing. It turns a request into a research tree, uses the built-in ChatGPT Search/Web capability to discover and open sources, extracts atomic claims, validates evidence and independence, actively searches for contradictions, then synthesizes only after a quality audit. For articles and guides, it first shows a concise search structure built from the future sections of the material, continues automatically, and converts the validated result into a plain-language `editor-ready` document instead of exposing the internal evidence database.
 
 For long-running work, it also provides a persistent research bundle with stable IDs, append-friendly ledgers, resumable checkpoints, an explicit downstream handoff, and deterministic referential-integrity validation. Web content is treated as untrusted data and cannot override the research task or request secrets/actions.
 
@@ -42,13 +42,23 @@ Hearthstone Battlegrounds for the current patch. Separate mechanics, statistics,
 high-MMR expert advice, and community opinion. Find counterarguments.
 ```
 
-Modes can be combined:
+Depth and evidence modifiers can be combined:
 
 ```text
-research: exhaustive, community-heavy, current-patch-only, raw-research
+research: exhaustive, community-heavy, current-patch-only
 ```
 
-The default is `deep` with a balance of primary sources, statistics, expert analysis, and community intelligence. A simple lookup does not need the full pipeline unless the user requests fact-checking or source comparison.
+For strategy-guide requests, `creator-heavy` gives X and YouTube dedicated passes for the sections where current player reasoning can change the advice. When those providers are available and no tighter cost limit is requested, Hearthstone deck guides use high X/YouTube emphasis by default. The Skill compares independent qualified creators and timestamped segments until the relevant section saturates; it does not treat token allowance, views, likes, or result volume as evidence quality.
+
+For example, a request for a current `Пират-воин` guide begins by showing a compact structure such as: relevance now → current builds and codes → comparison of the strongest build → card choices → choice of starting hand → game plan → opposing decks → mistakes. Research then continues section by section without an approval pause.
+
+The default depth is `deep` with a balance of primary sources, statistics, expert analysis, and community intelligence. Output profiles are independent from depth:
+
+- `editor-ready` — default for article, guide, editor, or publication materials;
+- `research-report` — default for analytical reports;
+- `raw-research` — only by explicit request for a raw dossier, complete evidence matrix, audit trail, or claim-level provenance.
+
+A simple lookup does not need the full pipeline unless the user requests fact-checking or source comparison.
 
 ## Search capability
 
@@ -86,9 +96,31 @@ python3 scripts/chinese_hearthstone.py guide-queries --archetype "控制战"
 
 The adapter reads `SCRAPE_DO_API_TOKEN` and optionally `KHS_API_TOKEN` only from the environment. Built-in ChatGPT Search/Web remains the default interactive discovery layer; the pipeline handles repeatable ingestion and still feeds the normal evidence/audit workflow.
 
+For Russian Hearthstone output, resolve publishable entity names by DBF ID instead of translating them from memory:
+
+```text
+python3 scripts/hearthstone_names.py --dbf 315 --kind constructed
+python3 scripts/hearthstone_names.py --dbf 130298 --kind battlegrounds-card
+python3 scripts/hearthstone_names.py --dbf 73940 --kind hero
+```
+
+The resolver uses the public read-only Koloda API for Standard/Wild, Battlegrounds cards and heroes, timewarped cards, anomalies, Dark Gifts, quests, Darkmoon Prizes, rewards, and trinkets. It returns the official Russian and English names plus the stable DBF/card identity. Missing Russian localization remains an explicit gap; the Skill must not improvise a translation. `KHS_API_TOKEN`, when configured, is read only from the environment and sent only as a Bearer header.
+
 ## Output boundary
 
-The output is a research report or raw evidence database, not an automatically generated SEO article. A separate Writer Skill may consume the validated research later.
+Research depth and output complexity are separate. The Skill keeps Claim → Evidence → Source records, confidence, contradictions, and methodology in its internal bundle, while article-oriented requests receive a simple editor-facing document. The main document is validated source material, not an automatically generated SEO article; a separate Writer Skill may still turn it into finished publication copy.
+
+For a local `editor-ready` file, run:
+
+```text
+python3 scripts/validate_editor_output.py /path/to/editor-ready.md
+```
+
+The check blocks missing opening structure, as-of context, source links, and leaked internal IDs. It reports non-blocking warnings for jargon, missing limitation sections, sentences over 30 words, paragraphs over 80 words or four sentences, and overly complex tables. It does not replace the semantic check that facts, links, and limitations survived the Clarity Editor pass.
+
+For a persistent `editor-ready` bundle, final validation also requires `audit.json.clarity_review` to record that claims, numbers, scope, citations, limitations, and contradictions were preserved after rewriting.
+
+New persistent `editor-ready` bundles also use coverage contract `1.0`: `plan.json` keeps stable future-section IDs; queries name the sections they investigate; and evidence, claim, and community records additionally declare their output destination. Every non-rejected critical/material claim stays in `main`, and every covered section needs at least one `supported`, `supported_with_conditions`, or `contested` main claim. `deep`/`exhaustive` runs produce a separate `useful-data.md` bank; even an optional bank present in a `quick` run is validated. Bank and appendix records need IDs in ordinary reader-visible text rather than code, link destinations, HTML attributes, comments, or hidden HTML; substantive prose beyond a link label or inline-code example; and direct inspected-source links matching their evidence. Final review freezes the manifest, plan, all research ledgers, report, and every applicable bank or appendix. Older schema 1.1 bundles without this additive flag remain compatible.
 
 ## Persistent professional workflow
 
@@ -99,7 +131,8 @@ python3 scripts/init_research_run.py /path/to/run \
   --question "Main question" \
   --depth exhaustive \
   --domain hearthstone \
-  --modifier raw-research
+  --output-profile raw-research \
+  --modifier current-patch-only
 
 python3 scripts/validate_research_run.py /path/to/run --stage working
 python3 scripts/validate_research_run.py /path/to/run --stage final
@@ -110,7 +143,7 @@ python3 scripts/research_ops.py export /path/to/run /path/to/research-run.zip
 python3 scripts/score_semantic_gold.py ../evaluation/gold/semantic-cases.jsonl ../evaluation/gold/semantic-predictions.jsonl
 ```
 
-The initializer refuses to overwrite a non-empty directory. Schema 1.1 records requested/final URLs, mutability, preserved snapshots, and SHA-256 fingerprints. The validator checks JSON/JSONL structure, unique stable IDs, Claim → Evidence → Source links, snapshot hashes, and final audit/readiness conditions. Legacy schema 1.0 bundles have a backed-up, reversible migration. `research_ops.py release` runs the benchmark, semantic gold, package audit, and tests before creating deterministic skill/evaluation archives and a SHA-256 manifest. See [research operations](references/research-operations.md), the [bundle contract](references/research-bundle.md), and [web safety](references/web-safety.md).
+The initializer refuses to overwrite a non-empty directory. Schema 1.1 records requested/final URLs, mutability, preserved snapshots, and SHA-256 fingerprints. The validator checks JSON/JSONL structure, unique stable IDs, Claim → Evidence → Source links, snapshot hashes, and final audit/readiness conditions. Legacy schema 1.0 bundles and early schema 1.1 bundles without `output_profile` have a backed-up, reversible migration. `research_ops.py release` runs the benchmark, semantic gold, package audit, and tests before creating deterministic skill/evaluation archives and a SHA-256 manifest. See [research operations](references/research-operations.md), the [bundle contract](references/research-bundle.md), and [web safety](references/web-safety.md).
 
 ## Validation
 
@@ -122,4 +155,4 @@ python3 -m unittest discover -s tests -p 'test_*.py' -v
 quick_validate.py /absolute/path/to/deep-research
 ```
 
-The first command checks package files, Python syntax, internal links, resource discoverability, and unfinished placeholders. The integration suite exercises initialization, working/final validation, broken references, timestamp enforcement, semantic-audit enforcement, migration, fingerprinting, benchmark tamper rejection, deterministic export, overwrite protection, provider normalization, secret-safe diagnostics, TinyFish rate limits, TranscriptAPI search/transcript normalization and retry policy, Scrape.do escalation, Chinese source fixtures, deck similarity, origin classification, Bilibili evidence, and Koloda API normalization. The bundled Skill validator checks frontmatter and naming. Method quality is recorded in the [self-audit](validation/self-audit.md), the [simulated routing tests](validation/acceptance-tests.md), and the [22-case Search/Web benchmark](validation/live-evaluation.md). See also the [gaming](references/examples/gaming-research.md) and [general](references/examples/general-research.md) worked examples.
+The first command checks package files, Python syntax, internal links, resource discoverability, and unfinished placeholders. The integration suite exercises initialization, working/final validation, broken references, timestamp enforcement, semantic-audit enforcement, migration, fingerprinting, benchmark tamper rejection, deterministic export, overwrite protection, provider normalization, secret-safe diagnostics, TinyFish rate limits, TranscriptAPI search/transcript normalization and retry policy, Scrape.do escalation, Chinese source fixtures, deck similarity, origin classification, Bilibili evidence, Koloda API normalization, official Russian entity-name resolution, and editor-output clarity checks. The bundled Skill validator checks frontmatter and naming. Method quality is recorded in the [self-audit](validation/self-audit.md), the [simulated routing tests](validation/acceptance-tests.md), and the [22-case Search/Web benchmark](validation/live-evaluation.md). See also the [gaming](references/examples/gaming-research.md) and [general](references/examples/general-research.md) worked examples.
