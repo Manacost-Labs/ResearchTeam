@@ -37,6 +37,14 @@ from candidates import record_candidate
 from search_support import canonical_url, lineage_hint, next_id
 
 MAX_RESPONSE_BYTES = 5_000_000
+MIN_READABLE_CHARS = 300
+JS_SHELL_MARKERS = (
+    "enable javascript",
+    "javascript is required",
+    "javascript is disabled",
+    "please enable js",
+    "turn on javascript",
+)
 DEFAULT_TIMEOUT_SECONDS = 20.0
 USER_AGENT = "deep-research-fetch-source/1.0 (read-only research snapshot)"
 TEXT_CONTENT_TYPES = ("text/html", "application/xhtml+xml", "text/plain", "application/json")
@@ -278,8 +286,13 @@ def find_duplicate(sources: list[dict[str, Any]], url: str) -> str | None:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", help="Schema 1.1 research bundle directory")
-    parser.add_argument("url", help="Public http(s) URL of the source")
+    parser.add_argument("directory", help="Schema 1.1 or 1.2 research bundle directory")
+    parser.add_argument("url", nargs="?", help="Public http(s) URL of the source")
+    parser.add_argument(
+        "--refresh",
+        metavar="SOURCE_ID",
+        help="Re-fetch an existing source's final_url and replace its snapshot and fingerprint",
+    )
     parser.add_argument("--file", help="Local HTML/text file to ingest instead of fetching")
     parser.add_argument("--title", help="Override the page title")
     parser.add_argument("--source-type", default="other", choices=SOURCE_TYPES)
@@ -321,13 +334,26 @@ def main(argv: list[str] | None = None, *, transport: Transport | None = None) -
         print("error: fetch_source requires a schema 1.1 or 1.2 bundle", file=sys.stderr)
         return 2
 
+    refresh_target: dict[str, Any] | None = None
+    if args.refresh:
+        refresh_target = next((item for item in sources if item.get("source_id") == args.refresh), None)
+        if refresh_target is None:
+            print(f"error: unknown source {args.refresh}", file=sys.stderr)
+            return 2
+        if args.url:
+            print("error: --refresh takes the URL from the existing record; omit the URL", file=sys.stderr)
+            return 2
+        args.url = str(refresh_target.get("final_url") or refresh_target.get("requested_url") or "")
+    if not args.url:
+        print("error: a URL or --refresh SOURCE_ID is required", file=sys.stderr)
+        return 2
     try:
         check_url(args.url, allow_private=args.allow_private)
     except FetchError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    duplicate = find_duplicate(sources, args.url)
+    duplicate = None if refresh_target else find_duplicate(sources, args.url)
     if duplicate and not args.allow_duplicate:
         print(f"error: URL already recorded as {duplicate}; pass --allow-duplicate to add another record", file=sys.stderr)
         return 1
@@ -362,13 +388,26 @@ def main(argv: list[str] | None = None, *, transport: Transport | None = None) -
     if not text.strip():
         print("error: no readable text extracted; the page may need JavaScript", file=sys.stderr)
         return 1
-    title = (args.title or page_title or "").strip()
+    lowered_text = text.casefold()
+    if len(text.strip()) < MIN_READABLE_CHARS or any(marker in lowered_text for marker in JS_SHELL_MARKERS):
+        print(
+            "error: too little readable text; the page is probably a JavaScript shell or a block page. "
+            "Save the rendered page from the host tool and ingest it with --file, or record the "
+            "access limit manually.",
+            file=sys.stderr,
+        )
+        return 1
+    fallback_title = str(refresh_target.get("title", "")) if refresh_target else ""
+    if not fallback_title and not fetched["content_type"].startswith("text/html"):
+        # Machine-readable documents (JSON, plain text) have no <title>; name them by URL.
+        fallback_title = urlsplit(fetched["final_url"]).path.rstrip("/").rsplit("/", 1)[-1] or fetched["final_url"]
+    title = (args.title or page_title or fallback_title).strip()
     if not title:
         print("error: no title found; pass --title", file=sys.stderr)
         return 1
 
     existing_ids = {str(item.get("source_id")) for item in sources if item.get("source_id")}
-    source_id = next_id("SRC", existing_ids)
+    source_id = str(refresh_target["source_id"]) if refresh_target else next_id("SRC", existing_ids)
     snapshot_relative = f"snapshots/{source_id}.txt"
     snapshot_text = build_snapshot(
         title=title,
@@ -406,6 +445,20 @@ def main(argv: list[str] | None = None, *, transport: Transport | None = None) -
             record[field] = value
     if query_record is not None:
         record["found_by_query_ids"] = [args.query_id]
+    if refresh_target is not None:
+        # Keep the researcher's descriptive fields; replace only access and fingerprint facts.
+        merged = dict(refresh_target)
+        for field in (
+            "final_url", "canonical_url", "accessed_at", "access_integrity", "fingerprint_status",
+            "snapshot_path", "content_sha256", "content_bytes", "fingerprinted_at", "retrieved_by",
+            "content_type", "http_status",
+        ):
+            if field in record:
+                merged[field] = record[field]
+        merged.pop("fingerprint_reason", None)
+        merged["title"] = merged.get("title") or record["title"]
+        merged["previous_snapshot_refreshed_at"] = accessed_at
+        record = merged
 
     if not args.apply:
         print(json.dumps({"preview": record, "text_excerpt": text[:600]}, ensure_ascii=False, indent=2))
@@ -414,12 +467,19 @@ def main(argv: list[str] | None = None, *, transport: Transport | None = None) -
 
     (root / "snapshots").mkdir(exist_ok=True)
     snapshot_path = root / snapshot_relative
-    if snapshot_path.exists():
+    if snapshot_path.exists() and refresh_target is None:
         print(f"error: snapshot already exists: {snapshot_relative}", file=sys.stderr)
         return 1
     snapshot_path.write_bytes(payload)
-    with (root / "sources.jsonl").open("a", encoding="utf-8") as stream:
-        stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+    if refresh_target is not None:
+        replaced = [record if item.get("source_id") == source_id else item for item in sources]
+        atomic_write(
+            root / "sources.jsonl",
+            "".join(json.dumps(item, ensure_ascii=False) + "\n" for item in replaced),
+        )
+    else:
+        with (root / "sources.jsonl").open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, ensure_ascii=False) + "\n")
     if query_record is not None:
         linked = query_record.get("result_source_ids")
         if not isinstance(linked, list):
@@ -439,8 +499,9 @@ def main(argv: list[str] | None = None, *, transport: Transport | None = None) -
             source_id=source_id,
             title=title,
         )
+    verb = "Refreshed" if refresh_target is not None else "Recorded"
     print(
-        f"Recorded {source_id}: {title} ({record['content_bytes']} bytes, "
+        f"{verb} {source_id}: {record['title']} ({record['content_bytes']} bytes, "
         f"sha256 {record['content_sha256'][:12]}...)"
     )
     return 0

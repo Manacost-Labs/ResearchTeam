@@ -269,6 +269,17 @@ python3 deep-research/scripts/research_ops.py export /path/to/run /path/to/run.z
 
 The [bundle contract](deep-research/references/research-bundle.md) defines stable IDs, provenance snapshots, source fingerprints, semantic-audit records, lifecycle states, and readiness rules.
 
+## Search quality gates
+
+Beyond structural validation, the source tree measures the search itself:
+
+| Gate | Tool | What it proves |
+|---|---|---|
+| Search coverage | `search_coverage.py --strict` | Query families per branch, candidate open rate, host and lineage concentration, challenge and anchor coverage, saturation |
+| Patch freshness | `freshness_check.py --strict` | Declared patch is current for the mode; older sources are labeled |
+| Recall | `validate_recall.py evaluation/recall` | Gold official, statistics, and community sources were actually found |
+| Excerpt anchors | schema 1.2 validator | Every quoted excerpt exists in the source snapshot |
+
 ## Verified quality
 
 The stable 1.0.0 release is backed by 20 live Search/Web scenarios across five domains and two controlled adversarial fixtures.

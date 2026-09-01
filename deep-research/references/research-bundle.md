@@ -145,7 +145,7 @@ A critical or material claim without `challenging_evidence_ids` should carry `ch
 
 Schema `1.1` requires `source_id`, `title`, `requested_url`, `final_url`, `accessed_at`, `access_integrity`, `source_type`, `lineage_id`, `mutable`, and `fingerprint_status`.
 
-For `verified`, also record `snapshot_path`, `content_sha256`, `content_bytes`, and `fingerprinted_at`. The validator recalculates the hash. `fetch_source.py` produces a verified record, the snapshot, an optional `canonical_url`, and a derived `lineage_id` in one step; pass `--lineage` when the page reposts a known upstream origin, and `--file` to ingest a page already saved by the host tool. For `unavailable` or `exempt`, record `fingerprint_reason`. Never preserve authenticated pages, private session data, paywalled content without permission, or copyrighted material beyond what the research task permits.
+For `verified`, also record `snapshot_path`, `content_sha256`, `content_bytes`, and `fingerprinted_at`. The validator recalculates the hash. `fetch_source.py` produces a verified record, the snapshot, an optional `canonical_url`, and a derived `lineage_id` in one step; pass `--lineage` when the page reposts a known upstream origin, `--file` to ingest a page already saved by the host tool, and `--refresh SRC-0001` to replace an existing source's snapshot and fingerprint from its recorded URL. Pages that return too little readable text are refused rather than recorded as full access. For `unavailable` or `exempt`, record `fingerprint_reason`. Never preserve authenticated pages, private session data, paywalled content without permission, or copyrighted material beyond what the research task permits.
 
 ### Lineage suggestions
 

@@ -329,7 +329,9 @@ class SearchCoverageTest(unittest.TestCase):
 HTML_FIXTURE = """<!doctype html><html><head><meta charset="utf-8"><title> Dark Gift  Developer Insight </title>
 <style>body{color:red}</style><script>window.x = 1;</script></head>
 <body><nav>Menu</nav><h1>Dark Gifts</h1><p>Dark Discovery costs <b>3</b> gold.</p>
-<div><p>It unlocks on turn three.</p></div><noscript>enable js</noscript></body></html>"""
+<div><p>It unlocks on turn three.</p></div><noscript>enable js</noscript>
+<p>""" + " ".join(f"Filler sentence number {i} keeps the fixture above the readable-text floor." for i in range(8)) + """</p>
+</body></html>"""
 
 
 def fake_transport(status: int = 200, final_url: str | None = None, body: bytes | None = None, content_type: str = "text/html; charset=utf-8"):
@@ -879,3 +881,107 @@ class SaturationTest(unittest.TestCase):
             self.assertEqual(report["yield_by_query"]["QRY-0007"], 1)
             self.assertEqual(report["saturation"]["__all__"]["trailing_zero_yield"], 0)
             self.assertTrue(any("not yet saturated" in item for item in report["findings"]["warnings"]))
+
+
+class FetchRefreshTest(unittest.TestCase):
+    def test_refresh_replaces_snapshot_and_keeps_descriptive_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp) / "run"
+            init_bundle(run_dir)
+            record = source("SRC-0001", "https://us.forums.blizzard.com/en/hearthstone/t/dark-gifts/163606", "LIN-HAND")
+            record.update({"title": "Hand-written title", "author": "Blizzard", "patch": "36.2", "notes": "keep me"})
+            write_jsonl(run_dir / "sources.jsonl", [record])
+            both = fetch_source.main([str(run_dir), "https://x.example", "--refresh", "SRC-0001", "--apply"], transport=fake_transport())
+            self.assertEqual(both, 2)
+            unknown = fetch_source.main([str(run_dir), "--refresh", "SRC-0009", "--apply"], transport=fake_transport())
+            self.assertEqual(unknown, 2)
+            refreshed = fetch_source.main([str(run_dir), "--refresh", "SRC-0001", "--apply"], transport=fake_transport())
+            self.assertEqual(refreshed, 0)
+            sources = read_jsonl(run_dir / "sources.jsonl")
+            self.assertEqual(len(sources), 1)
+            updated = sources[0]
+            self.assertEqual(updated["source_id"], "SRC-0001")
+            self.assertEqual(updated["title"], "Hand-written title")
+            self.assertEqual(updated["author"], "Blizzard")
+            self.assertEqual(updated["patch"], "36.2")
+            self.assertEqual(updated["lineage_id"], "LIN-HAND")
+            self.assertEqual(updated["fingerprint_status"], "verified")
+            self.assertNotIn("fingerprint_reason", updated)
+            snapshot = run_dir / updated["snapshot_path"]
+            self.assertEqual(hashlib.sha256(snapshot.read_bytes()).hexdigest(), updated["content_sha256"])
+            self.assertIn("Dark Discovery costs 3 gold.", snapshot.read_text(encoding="utf-8"))
+            again = fetch_source.main([str(run_dir), "--refresh", "SRC-0001", "--apply"], transport=fake_transport())
+            self.assertEqual(again, 0)
+            self.assertEqual(len(read_jsonl(run_dir / "sources.jsonl")), 1)
+
+    def test_thin_or_javascript_shell_pages_are_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp) / "run"
+            init_bundle(run_dir)
+            shell = b"<html><head><title>App</title></head><body><div id='root'></div><p>Please enable JavaScript to continue.</p></body></html>"
+            result = fetch_source.main([str(run_dir), "https://spa.example/page", "--apply"], transport=fake_transport(body=shell))
+            self.assertEqual(result, 1)
+            self.assertEqual(read_jsonl(run_dir / "sources.jsonl"), [])
+
+
+RECALL = SCRIPTS / "validate_recall.py"
+RECALL_DIR = ROOT.parent / "evaluation/recall"
+
+
+class RecallBenchmarkTest(unittest.TestCase):
+    def test_case_definitions_are_valid(self) -> None:
+        result = run(RECALL, str(RECALL_DIR), "--stage", "plan")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("10 cases defined", result.stdout)
+
+    def test_scoring_reports_recall_misses_and_first_authoritative_query(self) -> None:
+        import validate_recall
+
+        with tempfile.TemporaryDirectory() as temp:
+            bench = Path(temp) / "recall"
+            bench.mkdir()
+            case = {
+                "case_id": "RECALL-101", "oracle_version": "1.0", "title": "t", "domain": "hearthstone", "mode": "battlegrounds", "as_of": "2026-08-31", "prompt": "p",
+                "gold_sources": [
+                    {"match": "url", "url": "https://hearthstone.blizzard.com/en-us/news/24293284", "source_class": "official", "why": "patch"},
+                    {"match": "host_prefix", "host": "api.kolodahearthstone.com", "path_prefix": "/api/bg", "source_class": "statistics", "why": "stats"},
+                    {"match": "host_prefix", "host": "www.reddit.com", "path_prefix": "/r/BobsTavern", "source_class": "community", "why": "community"},
+                ],
+            }
+            (bench / "cases.jsonl").write_text("".join(json.dumps(case) + "\n" for _ in range(1)) * 1, encoding="utf-8")
+            errors = validate_recall.validate_cases([case])
+            self.assertEqual(errors, [])
+            bad = dict(case, gold_sources=[{"match": "url", "url": "http://x", "why": "", "source_class": "x"}])
+            self.assertTrue(validate_recall.validate_cases([bad]))
+
+            run_dir = Path(temp) / "run"
+            init_bundle(run_dir)
+            write_jsonl(run_dir / "sources.jsonl", [
+                {**source("SRC-0001", "https://www.reddit.com/r/BobsTavern/comments/abc/", "LIN-A"), "source_type": "community"},
+                {**source("SRC-0002", "https://hearthstone.blizzard.com/en-us/news/24293284?utm_source=x", "LIN-B"), "source_type": "official"},
+            ])
+            write_jsonl(run_dir / "queries.jsonl", [
+                executed_query("QRY-0001", "reddit", "q1", ["SRC-0001"]),
+                {**executed_query("QRY-0002", "primary", "q2", ["SRC-0002"]), "executed_at": "2026-09-01T10:05:00Z"},
+            ])
+            report = validate_recall.score_bundle(case, run_dir)
+            self.assertEqual(report["gold_found"], 2)
+            self.assertEqual(report["status"], "fail")
+            self.assertEqual(report["misses"][0]["gold"], "api.kolodahearthstone.com/api/bg")
+            self.assertEqual(report["queries_to_first_authoritative"], 2)
+
+            (bench / "results.jsonl").write_text(json.dumps({"case_id": "RECALL-101", "bundle_path": str(run_dir)}) + "\n", encoding="utf-8")
+            cases = [dict(case, case_id=f"RECALL-{100 + i}") for i in range(1, 11)]
+            (bench / "cases.jsonl").write_text("".join(json.dumps(item) + "\n" for item in cases), encoding="utf-8")
+            scored = run(RECALL, str(bench), "--stage", "score")
+            self.assertEqual(scored.returncode, 1, scored.stdout)
+            self.assertIn("RECALL-101: fail recall 0.667", scored.stdout)
+            self.assertIn("not_run: RECALL-102", scored.stdout)
+            sources = read_jsonl(run_dir / "sources.jsonl")
+            sources.append({**source("SRC-0003", "https://api.kolodahearthstone.com/api/bg/heroes/1", "LIN-C"), "source_type": "statistics"})
+            write_jsonl(run_dir / "sources.jsonl", sources)
+            scored = run(RECALL, str(bench), "--stage", "score")
+            self.assertEqual(scored.returncode, 0, scored.stdout)
+            self.assertIn("RECALL-101: pass recall 1.0", scored.stdout)
+            strict = run(RECALL, str(bench), "--stage", "score", "--require-all")
+            self.assertEqual(strict.returncode, 1)
