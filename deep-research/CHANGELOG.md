@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added `scripts/model_trial.py`: `start` prepares a schema 1.2 bundle from a recall case with registry opens, a query plan, and a self-contained `TASK.md` for any agent host (Codex, Claude Code, Gemini CLI, ChatGPT); `score` runs every deterministic gate and writes a transparent 0-100 scorecard; `compare` tabulates several trials side by side.
+
 - Added a search-recall benchmark (`evaluation/recall`) with ten Hearthstone cases whose gold sources are official pages, first-party statistics hosts, and mode-specific community venues, plus `scripts/validate_recall.py`, which scores linked bundles on recall, snippet-only admissions, and queries-to-first-authoritative-source.
 - `fetch_source.py --refresh SOURCE_ID` re-fetches an existing source in place, replacing the snapshot and fingerprint while keeping the researcher's descriptive fields; pages with too little readable text or JavaScript-shell markers are refused instead of recorded as full access.
 - Added a GitHub Actions workflow running the unit suite, skill audit, release benchmark, semantic gold, recall case validation, a coverage smoke test, and a tracked-secret check on Python 3.12 and 3.13.

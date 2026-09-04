@@ -985,3 +985,102 @@ class RecallBenchmarkTest(unittest.TestCase):
             self.assertIn("RECALL-101: pass recall 1.0", scored.stdout)
             strict = run(RECALL, str(bench), "--stage", "score", "--require-all")
             self.assertEqual(strict.returncode, 1)
+
+
+TRIAL = SCRIPTS / "model_trial.py"
+
+
+class ModelTrialTest(unittest.TestCase):
+    def test_start_prepares_bundle_task_and_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            trial_dir = Path(temp) / "trial"
+            result = run(TRIAL, "start", str(trial_dir), "--case", "RECALL-006", "--host", "gemini-cli", "--model", "gemini-test")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            trial = json.loads((trial_dir / "trial.json").read_text(encoding="utf-8"))
+            self.assertEqual(trial["case_id"], "RECALL-006")
+            self.assertEqual(trial["host"], "gemini-cli")
+            self.assertEqual(trial["languages"], ["en", "ru"])
+            bundle = Path(trial["bundle"])
+            manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["schema_version"], "1.2")
+            self.assertEqual(manifest["as_of"], "2026-08-31")
+            self.assertEqual(manifest["current_context"]["mode"], "Solo Battlegrounds")
+            plan = read_jsonl(bundle / "query-plan.jsonl")
+            self.assertTrue(any(record.get("registry_id") == "blizzard-news" for record in plan))
+            self.assertTrue(any(record.get("family") == "counterargument" for record in plan))
+            task = (trial_dir / "TASK.md").read_text(encoding="utf-8")
+            self.assertIn("When should the first Dark Gift", task)
+            self.assertIn("fetch_source.py", task)
+            self.assertIn("validate_research_run.py", task)
+            self.assertIn("Never invent a source", task)
+            refused = run(TRIAL, "start", str(trial_dir), "--case", "RECALL-006", "--host", "codex", "--model", "x")
+            self.assertEqual(refused.returncode, 2)
+            unknown = run(TRIAL, "start", str(Path(temp) / "other"), "--case", "RECALL-999", "--host", "codex", "--model", "x")
+            self.assertEqual(unknown.returncode, 2)
+
+    def test_score_and_compare_produce_transparent_totals(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            trial_dir = Path(temp) / "trial"
+            start = run(TRIAL, "start", str(trial_dir), "--case", "RECALL-006", "--host", "claude-code", "--model", "claude-test", "--depth", "quick")
+            self.assertEqual(start.returncode, 0, start.stderr)
+            bundle = Path(json.loads((trial_dir / "trial.json").read_text(encoding="utf-8"))["bundle"])
+            empty = run(TRIAL, "score", str(trial_dir), "--json")
+            self.assertEqual(empty.returncode, 0, empty.stderr)
+            empty_card = json.loads(empty.stdout)
+            self.assertLess(empty_card["total"], 15)
+            self.assertEqual(empty_card["components"]["recall"]["points"], 0)
+
+            # Fill the bundle with gold sources, anchored evidence, and a challenge search.
+            gold = [
+                ("SRC-0001", "https://us.forums.blizzard.com/en/hearthstone/t/battlegrounds-developer-insight-dark-gifts/163606", "official"),
+                ("SRC-0002", "https://us.forums.blizzard.com/en/hearthstone/t/3621-hotfix-patch/164300", "official"),
+                ("SRC-0003", "https://hearthstone.blizzard.com/en-us/news/24293284", "official"),
+                ("SRC-0004", "https://api.kolodahearthstone.com/api/bg/heroes", "statistics"),
+                ("SRC-0005", "https://www.youtube.com/watch?v=qvhwVb1NSOw", "video"),
+            ]
+            sources = []
+            for source_id, url, source_type in gold:
+                record = source(source_id, url, f"LIN-{source_id}", verified=True, run_dir=bundle)
+                record.update({"source_type": source_type, "patch": "36.2.2", "freshness_status": "CURRENT"})
+                sources.append(record)
+            write_jsonl(bundle / "sources.jsonl", sources)
+            write_jsonl(bundle / "queries.jsonl", [
+                {**executed_query("QRY-0001", "primary", "Dark Gift official", ["SRC-0001", "SRC-0002", "SRC-0003"]), "pass": "discovery"},
+                {**executed_query("QRY-0002", "statistics", "Dark Gift statistics", ["SRC-0004"]), "executed_at": "2026-09-01T10:01:00Z"},
+                {**executed_query("QRY-0003", "counterargument", "why not Dark Gift", []), "pass": "contradiction", "executed_at": "2026-09-01T10:02:00Z"},
+                {**executed_query("QRY-0004", "freshness", "Dark Gift 36.4", []), "pass": "freshness", "executed_at": "2026-09-01T10:03:00Z"},
+                {**executed_query("QRY-0005", "youtube", "Dark Gift video", ["SRC-0005"]), "executed_at": "2026-09-01T10:04:00Z"},
+            ])
+            write_jsonl(bundle / "evidence.jsonl", [
+                {"evidence_id": "EVD-0001", "source_id": "SRC-0001", "claim_ids": ["CLM-0001"], "relationship": "supporting", "locator": "p1", "evidence_type": "fact", "faithful_paraphrase": "x", "exact_excerpt": "Source: SRC-0001 URL: https://us.forums.blizzard.com"},
+            ])
+            write_jsonl(bundle / "claims.jsonl", [
+                {"claim_id": "CLM-0001", "claim": "critical thing", "importance": "critical", "status": "supported", "confidence": "HIGH", "supporting_evidence_ids": ["EVD-0001"], "challenging_evidence_ids": [], "challenge_search": {"query_ids": ["QRY-0003"], "result": "none_found"}},
+            ])
+            manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+            manifest["current_context"]["client_patch"] = "36.4"
+            (bundle / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            scored = run(TRIAL, "score", str(trial_dir))
+            self.assertEqual(scored.returncode, 0, scored.stdout + scored.stderr)
+            card = json.loads((trial_dir / "scorecard.json").read_text(encoding="utf-8"))
+            self.assertEqual(card["components"]["recall"]["points"], 20)
+            self.assertEqual(card["components"]["anchors"]["points"], 10)
+            self.assertEqual(card["components"]["challenge"]["points"], 10)
+            self.assertEqual(card["components"]["fingerprints"]["points"], 10)
+            self.assertEqual(card["components"]["freshness"]["points"], 5)
+            self.assertEqual(card["components"]["families"]["points"], 10)
+            self.assertEqual(card["facts"]["final_validation"], "fail")
+            self.assertGreater(card["total"], empty_card["total"])
+            self.assertEqual(card["total"], round(sum(item["points"] for item in card["components"].values()), 1))
+
+            other = Path(temp) / "other"
+            run(TRIAL, "start", str(other), "--case", "RECALL-006", "--host", "codex", "--model", "codex-test", "--depth", "quick")
+            run(TRIAL, "score", str(other))
+            table = Path(temp) / "compare.md"
+            compare = run(TRIAL, "compare", str(trial_dir), str(other), "--markdown", str(table))
+            self.assertEqual(compare.returncode, 0, compare.stderr)
+            lines = compare.stdout.splitlines()
+            self.assertIn("| trial | host | model | case | total |", lines[0])
+            self.assertIn("claude-code", lines[2])
+            self.assertIn("codex", lines[3])
+            self.assertTrue(table.is_file())

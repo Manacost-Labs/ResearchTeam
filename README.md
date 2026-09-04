@@ -269,6 +269,24 @@ python3 deep-research/scripts/research_ops.py export /path/to/run /path/to/run.z
 
 The [bundle contract](deep-research/references/research-bundle.md) defines stable IDs, provenance snapshots, source fingerprints, semantic-audit records, lifecycle states, and readiness rules.
 
+## Trial any model on the same case
+
+Prepare a benchmark case as a self-contained task, run it in any agent host, then score the finished bundle with the same deterministic gates:
+
+```bash
+python3 deep-research/scripts/model_trial.py start trials/gemini-dark-gift \
+  --case RECALL-006 --host gemini-cli --model gemini-2.5-pro
+```
+
+Paste the generated `TASK.md` into the host, let it research into the prepared bundle, then:
+
+```bash
+python3 deep-research/scripts/model_trial.py score trials/gemini-dark-gift
+python3 deep-research/scripts/model_trial.py compare trials/* --markdown trials/comparison.md
+```
+
+The scorecard weights integrity, query families, challenge searches, excerpt anchors, fingerprints, recall against gold sources, freshness, lineage hygiene, and editor output, and lists the facts behind every number. It measures verifiable process quality, not prose correctness.
+
 ## Search quality gates
 
 Beyond structural validation, the source tree measures the search itself:

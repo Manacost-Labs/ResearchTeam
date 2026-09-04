@@ -36,6 +36,7 @@ REQUIRED = {
     "scripts/registry_seed.py",
     "scripts/candidates.py",
     "scripts/validate_recall.py",
+    "scripts/model_trial.py",
     "scripts/lineage_suggest.py",
     "scripts/freshness_check.py",
     "references/domains/hearthstone-sources.json",
